@@ -135,7 +135,9 @@ argument for putting it in comments.
 Model run. A fresh-context agent reads the article and its `thesis:` line —
 proposing one if absent, for the author to confirm, since that is a decision
 about direction rather than prose — and emits one marker per heading and
-paragraph. `rst_markers.py` validates the tree before writing: one nucleus per
+paragraph. The proposed thesis goes in the run's report or commit body, never
+into the article: a file without front matter stays without it until the
+author confirms (GH-483). `rst_markers.py` validates the tree before writing: one nucleus per
 section, every `-> n` target present, no cycles, every prose paragraph
 labelled. Locked spans are never annotated inside.
 
