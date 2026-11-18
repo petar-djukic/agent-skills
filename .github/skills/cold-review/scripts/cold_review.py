@@ -67,9 +67,33 @@ def _aligned(baseline, candidate):
     return btext, bp, ctext, cp
 
 
-def screen(baseline, candidate):
+def load_protected_terms(path):
+    """One term per line; blank lines and # comments skipped. Terms are
+    matched case-sensitively on word boundaries: a protected term is the
+    caller's exact vocabulary (a posture verb, a definition's term of
+    art), and 'Checked' at a sentence head is not the same word as the
+    protected 'checked' never is -- the caller lists both forms when both
+    are protected."""
+    terms = []
+    for line in open(path, encoding="utf-8"):
+        t = line.strip()
+        if t and not t.startswith("#"):
+            terms.append(t)
+    return terms
+
+
+def _term_pattern(term):
+    # Word boundaries only where the term starts/ends with a word
+    # character, so terms like `$tool` or R-MACH-010 still match exactly.
+    head = r"\b" if re.match(r"\w", term) else ""
+    tail = r"\b" if re.search(r"\w$", term) else ""
+    return re.compile(head + re.escape(term) + tail)
+
+
+def screen(baseline, candidate, protected_terms=None):
     """Revert candidates from mechanical drift, per aligned paragraph."""
     _bt, bp, _ct, cp = _aligned(baseline, candidate)
+    patterns = [(t, _term_pattern(t)) for t in (protected_terms or [])]
     findings = []
     for n, ((bs, be, b), (cs, ce, c)) in enumerate(zip(bp, cp), 1):
         drift = []
@@ -93,6 +117,15 @@ def screen(baseline, candidate):
         bq, cq = sorted(QUOTED.findall(b)), sorted(QUOTED.findall(c))
         if bq != cq:
             drift.append("double-quoted span altered")
+        # Protected terms (GH-479): entailment review cannot catch a
+        # hypernym swap -- "checked" returned as "verified" with the claim
+        # still entailed. A protected term present in the baseline
+        # paragraph and absent verbatim from the candidate is drift,
+        # whatever the model thinks of the meaning.
+        lost = [t for t, pat in patterns
+                if pat.search(b) and not pat.search(c)]
+        if lost:
+            drift.append(f"protected term lost: {lost}")
         if drift:
             findings.append({"paragraph": n, "candidate_lines": [cs, ce],
                              "drift": drift, "baseline_excerpt": b[:80],
@@ -137,6 +170,11 @@ def main():
     sc.add_argument("--baseline", required=True)
     sc.add_argument("--candidate", required=True)
     sc.add_argument("--json", action="store_true")
+    sc.add_argument("--protected-terms", metavar="FILE",
+                    help="one term per line; a baseline paragraph's term "
+                         "missing verbatim from its candidate is flagged "
+                         "(GH-479). Without the flag the screen is "
+                         "unchanged.")
 
     apl = sub.add_parser("apply", help="verbatim reverts by paragraph number")
     apl.add_argument("--baseline", required=True)
@@ -147,7 +185,9 @@ def main():
 
     a = ap.parse_args()
     if a.cmd == "screen":
-        findings = screen(a.baseline, a.candidate)
+        terms = (load_protected_terms(a.protected_terms)
+                 if a.protected_terms else None)
+        findings = screen(a.baseline, a.candidate, protected_terms=terms)
         if a.json:
             print(json.dumps(findings, indent=2))
         else:

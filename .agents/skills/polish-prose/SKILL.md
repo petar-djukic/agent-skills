@@ -55,11 +55,15 @@ Workflow({
 
 In a repository that composes skills under `.agents/skills/`, the
 script path is `.agents/skills/polish-prose/workflow.js`. When the run
-returns, relay its report to the author in plain prose: the roster
-used, rounds, what each round applied, the last panel read's convergent
+returns, read the report's `word_diff` — the article's word-diff against
+the baseline — before anything else, and relay it first: name the
+largest meaning-bearing changes the diff shows, then the roster used,
+rounds, what each round applied, the last panel read's convergent
 findings and focus answers, which optional stages were skipped and why,
-and the residue still open. The report is the record; nothing is
-written to a sheet.
+and the residue still open. Metrics never stand in for the diff: a
+caller who has not read the diff has not reviewed the run (GH-477, where
+two runs shipped meaning drift on the report's numbers). The report is
+the record; nothing is written to a sheet.
 
 | arg | default | meaning |
 |---|---|---|
@@ -107,7 +111,7 @@ Every skip is named in the report, never silent.
 | | cross-family comprehension read | critic-panel Mode C | `ross` (fixes in rounds 1–2, empty with the findings after) |
 | | voice audit | voice-critic | `voice-critic`, empty, with the verdicts |
 | Final read | read-only panel on the shipping text, when the round cap stopped the loop | critic-panel Mode A | `panel … final read`, empty |
-| Record | generation-note entry when there is front matter, sidecar sweep | — | yes |
+| Record | rst-marker strip (reverse-outline `strip`), generation-note entry when there is front matter, sidecar sweep, the word-diff for the report | — | yes |
 
 Every stage that runs ends in a commit (GH-434). A stage that leaves the
 text alone commits empty, with what it found in the body, so `git log` on

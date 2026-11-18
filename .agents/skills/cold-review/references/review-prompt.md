@@ -28,6 +28,10 @@ Inputs:
 - CONSTITUTION [CHECK] ITEMS (when the form has one): {check items}
 - MECHANICAL SCREEN FINDINGS (recall aid only; drift the scripts
   caught): {screen output, or "none"}
+- PROTECTED TERMS (when the caller names any): {terms — the piece's
+  exact vocabulary: posture verbs, definition terms of art, statement
+  ids. A sentence carrying one is held to exact preservation of that
+  term, not entailment.}
 
 Review paragraph by paragraph, aligned by position. You are looking for
 meaning damage, in these classes:
@@ -48,6 +52,13 @@ meaning damage, in these classes:
    "as claimed by the SRD", "(cold review rejected its deletion)". It
    states something the BASELINE never said, in the subject's own
    vocabulary, so no word list catches it. Revert the paragraph.
+7. Protected terms paraphrased — a PROTECTED TERM the BASELINE
+   paragraph carries that the CANDIDATE renders as a synonym or
+   hypernym: "checked" returned as "verified", "illustrated" as
+   "shown". The claim may be perfectly entailed; the term is the
+   piece's vocabulary and the swap is damage (GH-477). The mechanical
+   screen lists these when the caller supplies the terms; confirm each
+   one and revert the paragraph.
 
 Your verdict vocabulary is closed. Answer with exactly one of:
 

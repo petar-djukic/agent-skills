@@ -462,6 +462,32 @@ def test_background_corpus_finds_the_voice_dir():
     print("  background_corpus_finds_the_voice_dir: ok")
 
 
+def test_introduced_inflation_fails_the_gate():
+    import verify as vf
+    # GH-480: the 2026-11-17 class. The rewrite adds a stock connective
+    # and a booster the original never carried; the gate must fail.
+    orig = "This is why high autonomy necessitates agents."
+    cand = ("Consequently, high autonomy demands the use of agents, "
+            "a key consequence.")
+    v = vf.verify(orig, cand)
+    assert not v["clean"], v
+    hits = [f for f in v["findings"] if f["check"] == "introduced-inflation"]
+    assert hits, v["findings"]
+    assert "Consequently," in hits[0]["detail"], hits
+    assert "key" in hits[0]["detail"], hits
+
+
+def test_inflation_already_in_original_passes():
+    import verify as vf
+    # Direction-aware: an entry the original already carries never flags,
+    # and removal is never a violation.
+    orig = "Consequently, the key step stays declared."
+    cand = "The step stays declared."
+    v = vf.verify(orig, cand)
+    assert not [f for f in v["findings"]
+                if f["check"] == "introduced-inflation"], v["findings"]
+
+
 def main():
     test_returns_shape()
     test_first_person_introduced()
@@ -484,6 +510,8 @@ def main():
     test_added_emphasis_stripped()
     test_original_emphasis_preserved()
     test_background_corpus_finds_the_voice_dir()
+    test_introduced_inflation_fails_the_gate()
+    test_inflation_already_in_original_passes()
     print("test_match_voice: all assertions passed")
 
 
