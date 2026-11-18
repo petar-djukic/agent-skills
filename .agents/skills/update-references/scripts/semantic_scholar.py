@@ -37,6 +37,7 @@ import urllib.request
 from datetime import date
 
 import _naming
+from _csltype import s2_csl_type  # noqa: E402
 import _refdb
 
 try:
@@ -46,7 +47,7 @@ except ImportError:
 
 API_BASE = "https://api.semanticscholar.org/graph/v1"
 USER_AGENT = "update-references-skill/1.0"
-FIELDS = "title,authors,year,venue,abstract,openAccessPdf,externalIds,citationCount,url"
+FIELDS = "title,authors,year,venue,abstract,openAccessPdf,externalIds,citationCount,url,publicationTypes"
 
 _ENV = {"semantic_scholar": "SEMANTIC_SCHOLAR_API_KEY"}
 
@@ -177,6 +178,7 @@ def _record_from_item(item):
         "authors": authors,
         "year": item.get("year"),
         "venue": item.get("venue", ""),
+        "publication_types": item.get("publicationTypes") or [],
         "abstract": item.get("abstract", "") or "",
         "url": item.get("url", ""),
         "open_access_pdf": oa.get("url"),
@@ -288,7 +290,7 @@ def cmd_fetch(args):
 
     record = {
         "id": citation_id,
-        "type": "article",
+        "type": s2_csl_type(rec.get("publication_types"), rec["venue"]),
         "title": rec["title"],
         "author": rec["authors"],
         "container-title": rec["venue"] or "",
@@ -308,6 +310,10 @@ def cmd_fetch(args):
         record["md_path"] = os.path.relpath(md_path, db_dir)
 
     if existing:
+        # a specific type already on the entry wins; only a generic article
+        # takes the type this source gives (GH-475)
+        if existing.get("type") not in (None, "", "article"):
+            record["type"] = existing["type"]
         for keep in ("summary_file", "topics", "relevance", "added", "arxiv_id"):
             if keep in existing:
                 record.setdefault(keep, existing[keep])

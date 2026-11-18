@@ -40,6 +40,7 @@ import urllib.request
 from datetime import date
 
 import _naming
+from _csltype import openalex_csl_type, upgrade_type  # noqa: E402
 import _refdb
 
 try:
@@ -152,6 +153,7 @@ def _norm_work(w):
         "year": w.get("publication_year"),
         "venue": src.get("display_name") or "",
         "type": w.get("type"),
+        "source_type": src.get("type"),
         "cited_by": w.get("cited_by_count", 0),
         "fwci": w.get("fwci"),
         "citation_percentile": round(pct * 100, 1) if pct is not None else None,
@@ -324,7 +326,7 @@ def cmd_fetch(args):
 
     record = {
         "id": citation_id,
-        "type": "article",
+        "type": openalex_csl_type(rec["type"], rec["source_type"], rec["venue"]),
         "title": rec["title"],
         "author": [{"family": a["name"].split()[-1],
                     "given": " ".join(a["name"].split()[:-1])}
@@ -374,6 +376,8 @@ def cmd_fetch(args):
         for k in ("title", "author", "container-title", "URL", "issued", "type"):
             if not existing.get(k) and record.get(k):
                 existing[k] = record[k]
+        # a generic article takes the specific type the source gives (GH-475)
+        upgrade_type(existing, record["type"])
         # DOI: respect an existing uppercase-DOI (pandoc) or lowercase field
         if rec["doi"] and not existing.get("DOI") and not existing.get("doi"):
             existing["doi"] = rec["doi"]
