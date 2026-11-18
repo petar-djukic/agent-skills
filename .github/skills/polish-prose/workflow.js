@@ -6,7 +6,7 @@ export const meta = {
   phases: [
     { title: 'Preflight', detail: 'worktree branch, skill paths, focus file, baseline commit' },
     { title: 'Humanize', detail: 'the humanize chain, once, only when the caller passes humanize: true' },
-    { title: 'Review', detail: 'outline, length, panel, apply, cold review, ross, voice-critic; repeats while prose changes' },
+    { title: 'Review', detail: 'outline, length, panel, converge+apply, cold review, iceberg, ross, voice-critic; repeats while a round applies enough edits' },
     { title: 'Final read', detail: 'read-only panel on the shipping text when the round cap stopped the loop' },
     { title: 'Record', detail: 'generation note, sidecar sweep, report' },
   ],
@@ -22,16 +22,40 @@ const ART = A.article || A.file
 if (!ART) throw new Error('polish-prose: args.article (path to the markdown file) is required')
 const SK = A.skills_dir || 'skills'
 const MAX = A.max_rounds || 3
+// Later rounds are earned (GH-487). A round costs the same whether it finds
+// anything, and the stopping rule learned "no change" only after paying for
+// the round: a round whose net applied edits (after cold-review reverts)
+// fall below this threshold was already a read of the near-final text, so
+// the loop stops there and the separate final read is skipped.
+const MIN_EDITS = A.min_edits_for_next_round === undefined ? 3 : A.min_edits_for_next_round
+// A verdict without the loop (GH-487): preflight, the critics, one converge.
+// No commits, no apply, no iceberg, no ross; the sheet is the deliverable.
+const PANEL_ONLY = A.panel_only === true
 const ROSS_FIX_ROUNDS = 2
 const STEM = ART.replace(/\.md$/, '')
 const DEFAULT_ROSTER = ['Levine', 'Didion', 'Hemingway']
+// Stage models (GH-487). Six measured runs averaged ~84k tokens per agent
+// with ~58k of it boot context, so the judgment-light stages run on smaller
+// models. The persona critics and the Iceberg legs keep the session model
+// (the judgment product), and the ross agent's judgment comes from its
+// cross-family Ollama legs. These set the stage agent's tier only, never an
+// owning skill's internal transport (critic-apply's CRITIC_APPLY_MODEL and
+// voice-critic's judge stay those skills' own). args.stage_models overrides
+// per stage; an empty value means the session model.
+const STAGE_MODELS = Object.assign({
+  preflight: 'haiku', step6: 'sonnet', outline: 'sonnet', converge: 'haiku',
+  apply: 'sonnet', cold: 'sonnet', iceberg_apply: 'sonnet', ross: 'haiku',
+  voice: 'sonnet', final_prep: 'haiku', record: 'haiku',
+  critic: '', iceberg: '', humanize: '',
+}, A.stage_models || {})
+const M = (k) => (STAGE_MODELS[k] ? { model: STAGE_MODELS[k] } : {})
 // Uploads are opt-in per run (GH-437). The standing consent grant lets the
 // humanize drivers score every stage by default, and a run that forgot
 // --venue uploaded an unpublished journal section about eight times. A run
 // uploads only when the caller passes pangram: true.
 const PANGRAM = A.pangram === true
 const NO_UPLOAD = `No Pangram uploads in this run: the caller did not opt in (args.pangram). Run every command with PANGRAM_CONSENT=off in its environment, which the writing-voice rule makes win over a standing grant, and pass --no-pangram to every driver that accepts it. Record every Pangram score as "not measured". Where the skill's stop-at-the-upturn rule needs a score to stop on, run one pass and stop.`
-const REQUIRED_SKILLS = [...(HUMANIZE_ON ? ['humanize'] : []), 'reverse-outline', 'critic-panel', 'critic-apply', 'cold-review', 'voice-critic']
+const REQUIRED_SKILLS = PANEL_ONLY ? ['critic-panel'] : [...(HUMANIZE_ON ? ['humanize'] : []), 'reverse-outline', 'critic-panel', 'critic-apply', 'cold-review', 'voice-critic']
 
 const NO_PROSE = 'You never write article prose yourself. Text changes only through the owning skill: rewrites go through the rewrite transport, deletions and verbatim reverts apply mechanically.'
 // Every stage ends in a commit on the worktree branch (GH-434), so the
@@ -105,6 +129,7 @@ const SHEET = {
     focus_answers: { type: 'array', items: { type: 'string' } },
     residue_answers: { type: 'array', items: { type: 'string' } },
     single_critic: { type: 'integer' },
+    critic_verdicts: { type: 'array', items: { type: 'string' } },
   },
   required: ['sheet_path', 'convergent', 'paragraph_moves', 'classes', 'focus_answers', 'residue_answers', 'single_critic'],
 }
@@ -127,6 +152,15 @@ const APPLY = {
   required: ['candidate_path', 'applied', 'kept', 'declined', 'unapplied_convergent', 'applied_targets', 'applied_quotes', 'committed_sha'],
 }
 
+// One agent runs converge then critic-apply in the rounds (GH-487): the
+// merge is a script run and rides with the apply instead of paying for a
+// context of its own. Its return carries both stages' fields.
+const SHEET_APPLY = {
+  type: 'object',
+  properties: Object.assign({}, SHEET.properties, APPLY.properties),
+  required: [...SHEET.required, ...APPLY.required],
+}
+
 const COLD = {
   type: 'object',
   properties: {
@@ -145,8 +179,10 @@ const ROSS = {
     convergent: { type: 'array', items: { type: 'string' } },
     reserved: { type: 'array', items: { type: 'string' } },
     sheet_path: { type: 'string' },
+    prose_changed: { type: 'boolean' },
+    changed_lines: { type: 'integer' },
   },
-  required: ['legs', 'convergent', 'reserved', 'sheet_path'],
+  required: ['legs', 'convergent', 'reserved', 'sheet_path', 'prose_changed', 'changed_lines'],
 }
 
 const VOICE = {
@@ -167,15 +203,6 @@ const STEP6 = {
   required: ['verdict', 'findings'],
 }
 
-const DIFF = {
-  type: 'object',
-  properties: {
-    prose_changed: { type: 'boolean' },
-    changed_lines: { type: 'integer' },
-  },
-  required: ['prose_changed', 'changed_lines'],
-}
-
 const RECORD = {
   type: 'object',
   properties: {
@@ -194,7 +221,7 @@ const list = (xs) => (xs && xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(n
 phase('Preflight')
 const pre = await agent(`Preflight for a polish-prose run on ${ART}. The file can be any prose a person reads end to end: an essay, post, paper section, README, or book chapter. ${A.validate_only ? 'VALIDATE ONLY: change nothing, commit nothing.' : ''}
 
-1. Report the current git branch. ${A.validate_only ? 'This is a validate-only run, so any branch is acceptable.' : 'If it is main or master, set ok=false: this pipeline commits, and changes land only on worktree branches (loop workflow).'}
+1. Report the current git branch. ${A.validate_only || PANEL_ONLY ? 'This run is read-only, so any branch is acceptable.' : 'If it is main or master, set ok=false: this pipeline commits, and changes land only on worktree branches (loop workflow).'}
 2. Check that ${ART} exists and that each of these skill files exists: ${REQUIRED_SKILLS.map((s) => `${SK}/${s}/SKILL.md`).join(', ')}. List any missing path in "missing" and set ok=false if any are missing.
 3. Focus file: ${A.focus_file ? `use ${A.focus_file}.` : `walk up from the article's directory to the repository root looking for critic-focus.md; use the nearest one.`} If found, return its path, each named check as one string in focus_items (verbatim, one per check), and the deterministic pre-check command it names in precheck_command with {article} left as a placeholder. If none exists, return empty values: the panel then reads without a focus list, which is allowed.
    From the found brief, also collect the piece's protected terms (GH-481): every term the brief itself names as vocabulary to keep exact — the backticked or quoted terms of its term-of-art item, the posture verbs, ids, and spellings of its pinned-facts item — verbatim, never inferred or added to. ${A.validate_only ? 'Return them in reason as a parenthetical count and write no file.' : `Write them one per line to ${STEM}.protected-terms.txt and return that path as protected_terms_file;`} with no brief or no such items, write nothing and return an empty string.
@@ -204,8 +231,8 @@ const pre = await agent(`Preflight for a polish-prose run on ${ART}. The file ca
 7. Optional stages: has_front_matter = the file starts with a YAML front-matter block; has_voice_corpus = a writing-voice/ directory with exemplars is found walking up from the file (humanize needs it); has_voice_constitution = writing-voice/voice-constitution.md is found the same way (voice-critic needs it).
 8. voice-critic readiness, once for the whole run: if has_voice_constitution, run ${SK}/voice-critic/scripts/voice_critic.py --preflight --form "<the form from step 4>" (in the skills' pixi environment, as ${SK}/voice-critic/SKILL.md says) and copy its JSON fields: voice_form = "form", voice_model = "model", voice_skip = "skip" (empty string for any null). Do not retry it with another form or model, and do not pull a model: a skip is a finding, reported once. If has_voice_constitution is false, return all three as empty strings.
 9. Venue: ${A.venue ? `the caller says ${A.venue}; return it.` : `look for writing-voice/venues/*.yaml walking up from the file. If profiles exist, return the name of the one whose description fits the form from step 4 (a paper section is academic, a book chapter is book, a newsletter post is newsletter, a how-to or technical essay is technical-essay, an industry report or whitepaper is industry-report); return an empty string when none fits or there are no profiles. Do not guess past the descriptions.`}
-10. ${A.validate_only ? 'Do not commit. Return baseline_sha as the current HEAD.' : `If ${ART} has uncommitted changes, commit them alone as "draft: <slug> (pre-pipeline baseline)". Return baseline_sha as HEAD after that.`}`,
-  { label: 'preflight', schema: PREFLIGHT, effort: 'low' })
+10. ${A.validate_only || PANEL_ONLY ? 'Do not commit. Return baseline_sha as the current HEAD.' : `If ${ART} has uncommitted changes, commit them alone as "draft: <slug> (pre-pipeline baseline)". Return baseline_sha as HEAD after that.`}`,
+  { label: 'preflight', schema: PREFLIGHT, effort: 'low', ...M('preflight') })
 
 if (!pre || !pre.ok) {
   return { status: 'refused', reason: pre ? pre.reason : 'preflight agent failed', preflight: pre }
@@ -225,9 +252,9 @@ if (A.validate_only) {
 }
 
 // ---------------------------------------------------------------- Humanize
-phase('Humanize')
 let hum = { ran: false, seed_reach: 'skipped', stages: [], notes: HUMANIZE_ON ? 'no writing-voice/ corpus found; humanize needs its exemplars' : 'not requested: the review loop alone polishes; pass humanize: true to run the chain' }
-if (HUMANIZE_ON && pre.has_voice_corpus) {
+if (!PANEL_ONLY && HUMANIZE_ON && pre.has_voice_corpus) {
+  phase('Humanize')
   hum = await agent(`Run the humanize skill on ${ART}: read ${SK}/humanize/SKILL.md and follow it end to end, exactly as written, including its stage order, its measurements, and its report. ${VENUE ? `Use venue mode with --venue ${VENUE}.` : ''}
 ${PANGRAM ? '' : NO_UPLOAD}
 
@@ -240,7 +267,7 @@ If a model call fails on TLS certificates, point SSL_CERT_FILE at certifi's bund
 ${NO_PROSE}
 ${HYGIENE}
 Return seed reach exactly as the skill reports it, each stage with its score, and anything the caller must know.`,
-    { label: 'humanize', schema: HUMANIZE })
+    { label: 'humanize', schema: HUMANIZE, ...M('humanize') })
   if (!hum) return { status: 'failed', stage: 'humanize', preflight: pre }
   log(`humanize: seed reach ${hum.seed_reach}`)
 }
@@ -255,7 +282,7 @@ if (hum.ran) {
 You see only the final text: ${ART} as it stands now. You have not seen the rewrite history, the reasoning, or the diffs, and you must not look: do not read git log, git diff, earlier commits, or any sidecar. For the Step 3 report, run filter-tells' own lexical and structural scans (${SK}/filter-tells/scripts/detect-lexical.sh and detect-structural.py) on ${ART} yourself.
 
 Take the stance Step 6 gives you: assume the rewrites introduced new patterns, and find them. Return verdict "clean" only if you find none; otherwise "flagged", with each finding as one line: the quoted span, the pattern, and what would fix it. Change nothing in ${ART}. ${COMMIT('filter-tells step 6: <slug> (independent evaluator)')} The body carries the verdict and one line per finding. ${HYGIENE}`,
-    { label: 'filter-tells step 6', phase: 'Humanize', schema: STEP6, effort: 'medium' })
+    { label: 'filter-tells step 6', phase: 'Humanize', schema: STEP6, effort: 'medium', ...M('step6') })
   if (!step6) step6 = { verdict: 'failed', findings: [], reason: 'the evaluator agent failed' }
   log(`filter-tells step 6 (fresh context): ${step6.verdict}, ${step6.findings.length} finding(s)`)
 }
@@ -265,7 +292,7 @@ const focusBlock = pre.focus_items.length
   ? `FOCUS LIST. Answer every item explicitly, BY NAME, inside your ## Diagnosis, before your free read:\n${list(pre.focus_items)}`
   : 'No focus list was supplied for this repository: give your free read.'
 
-async function panel(o, residue, rejected, round, tag) {
+async function criticsRead(o, residue, rejected, round, tag) {
   const criticReports = await parallel(CRITICS.map((name) => () => agent(`You are the ${name} critic on a critic-panel Mode A read. Fresh context by design: you have not seen any other critic's report and must not look for one.
 
 Read your persona brief (the ${name} entry) in ${SK}/critic-panel/references/personas.md; it states your kind (suggest or verdict). From ${SK}/critic-panel/SKILL.md read "The two report formats" (use your kind's format with its literal headings) and "Constraints" (the shared ones and your kind's). Then read the reading copy at ${o.copy_path}.
@@ -288,13 +315,23 @@ Write your report to ${STEM}.critic-${name.toLowerCase()}.md and return only the
   if (criticReports.filter(Boolean).length < CRITICS.length) {
     log(`round ${round}: ${CRITICS.length - criticReports.filter(Boolean).length} critic(s) failed; merging what returned`)
   }
+}
+
+// The read-only panel: critics, then a converge of its own. Only the final
+// read and panel_only use it; in the rounds the merge runs inside the
+// critic-apply agent instead (GH-487).
+async function panel(o, residue, rejected, round, tag) {
+  await criticsRead(o, residue, rejected, round, tag)
   return agent(`Merge the critic-panel reports for ${ART}: ${CRITICS.map((n) => `${STEM}.critic-${n.toLowerCase()}.md`).join(', ')} (skip any that does not exist).
 
 Run ${SK}/critic-panel/scripts/converge.py on them with --out ${STEM}.critic-sheet.md --roster ${CRITICS.map((n) => n.toLowerCase()).join(',')}. If a report is refused as unparseable, fix only its headings and field labels to the literal format in ${SK}/critic-panel/SKILL.md (never its content) and re-run.
 
-From the sheet and the reports return: every convergent passage (2+ critics) with its first words, the shared reason, and the critic count; the paragraph moves; the declared defect classes; the consensus answer to each focus-list item from the Diagnoses (one line each); one line per open item R1, R2, ... in residue_answers, giving its number, the consensus (still present, fixed, not a defect) and how many critics answered it, with "unanswered" when none did; and the single-critic suggestion count. Keep the critic reports and sheet on disk (the next stage reads the sheet) and return its path.
-${COMMIT(tag === 'final' ? 'panel: <slug> (final read)' : `panel: <slug> (round ${round})`)} The body carries the convergent count, one line per convergent passage (first words and reason), one line per focus-list answer, and one line per open-item answer.`,
-    { label: `${tag} r${round}: converge`, phase: tag === 'final' ? 'Final read' : 'Review', schema: SHEET, effort: 'low' })
+From the sheet and the reports return: every convergent passage (2+ critics) with its first words, the shared reason, and the critic count; the paragraph moves; the declared defect classes; the consensus answer to each focus-list item from the Diagnoses (one line each); one line per open item R1, R2, ... in residue_answers, giving its number, the consensus (still present, fixed, not a defect) and how many critics answered it, with "unanswered" when none did; and the single-critic suggestion count.
+${tag === 'panel-only'
+    ? `Also return critic_verdicts: one line per critic, its name and its overall verdict or top concern, taken from its report. Then delete the critic reports, keep the sheet on disk (its path is the deliverable), and commit nothing: this is a read-only panel run.`
+    : `Keep the critic reports and sheet on disk (the next stage reads the sheet) and return its path.
+${COMMIT(tag === 'final' ? 'panel: <slug> (final read)' : `panel: <slug> (round ${round})`)} The body carries the convergent count, one line per convergent passage (first words and reason), one line per focus-list answer, and one line per open-item answer.`}`,
+    { label: `${tag} r${round}: converge`, phase: tag === 'final' ? 'Final read' : 'Review', schema: SHEET, effort: 'low', ...M('converge') })
 }
 
 // Cold review of a candidate against the article as committed at baseline.
@@ -312,7 +349,7 @@ Read ${SK}/cold-review/SKILL.md and its prompt template ${SK}/cold-review/refere
 High-value targets: numbers, citations, quotations, statement ids (R1.2, AC3), sentences left as fragments, edit-talk (the template's class 6: a new sentence about the edit, the document, its rules or its parts instead of the subject), and these protected spans:
 ${list(pre.protected_spans)}
 ${COMMIT(`cold-review: <slug> (round ${round}, ${stage}: <verdict>)`)} For reverts, one body line per reverted paragraph and why; for a rejection, the reasons. The candidate stays in history at ${candidateSha}, so git show reads what was tried. Return the verdict, each revert as one line, reverted_paragraphs (the 1-based prose paragraph numbers you reverted, as cold_review.py numbers them; for a rejection, every paragraph the candidate changed), and HEAD after your commit. ${HYGIENE}`,
-    { label, phase: 'Review', schema: COLD })
+    { label, phase: 'Review', schema: COLD, ...M('cold') })
 }
 
 // What outranks the Iceberg removal test: the caller's focus list, the
@@ -325,6 +362,33 @@ function keepBlock(focusAnswers) {
   return parts.length
     ? `KEEP LIST. These outrank the removal test. A clause a focus item, a rule, or the panel's answers name as carrying the argument (a consequence that states what a feature buys, an SRD-required consequence, a closer with a statement id such as R1.2 or AC3) is not a warrant tail: do not suggest cutting it, whatever its grammar.\n${parts.join('\n\n')}`
     : ''
+}
+
+// -------------------------------------------------------------- Panel only
+if (PANEL_ONLY) {
+  phase('Review')
+  const o = await agent(`Prepare a read-only panel read of ${ART}: build the reading copy with ${SK}/critic-panel/scripts/prepare_copy.py and return its path. ${pre.precheck_command ? `Run ${pre.precheck_command.replace('{article}', ART)} and return the total and flagged paragraphs.` : 'Return the prose word count and an empty flagged list.'} Return round_start_sha as HEAD and empty arrays for the reverse-outline fields. Change nothing and commit nothing.`,
+    { label: 'panel-only: copy + length', phase: 'Review', schema: OUTLINE, effort: 'low', ...M('final_prep') })
+  if (!o) return { status: 'failed', stage: 'panel-only prep', preflight: pre }
+  const sheet = await panel(o, [], [], 1, 'panel-only')
+  if (!sheet) return { status: 'failed', stage: 'panel-only converge', preflight: pre }
+  log(`panel-only read: ${sheet.convergent.length} convergent, ${sheet.single_critic} single-critic`)
+  return {
+    status: 'panel-only',
+    article: ART,
+    roster: CRITICS,
+    skipped,
+    branch: pre.branch,
+    baseline_sha: pre.baseline_sha,
+    focus_file: pre.focus_file || null,
+    sheet_path: sheet.sheet_path,
+    convergent: sheet.convergent,
+    paragraph_moves: sheet.paragraph_moves,
+    classes: sheet.classes,
+    focus_answers: sheet.focus_answers,
+    critic_verdicts: sheet.critic_verdicts || [],
+    single_critic: sheet.single_critic,
+  }
 }
 
 const rounds = []
@@ -362,7 +426,7 @@ const closeRejected = (review, applyResult, round, stage) => {
   }
 }
 let stable = false
-let lastSheet = null
+let stopReason = 'round-cap'
 
 for (let round = 1; round <= MAX; round++) {
   phase('Review')
@@ -373,14 +437,17 @@ for (let round = 1; round <= MAX; round++) {
 3. Build the critics' reading copy with ${SK}/critic-panel/scripts/prepare_copy.py and return its path (leave it on disk for the critics).
 4. ${pre.precheck_command ? `Run the length pre-check: ${pre.precheck_command.replace('{article}', ART)}. Return the prose word total and each flagged paragraph as one line (line number, word count, first words, over or DEFECT).` : 'No pre-check command was supplied; return total_words as the prose word count and an empty flagged list.'}
 ${NO_PROSE}`,
-    { label: `r${round}: outline + length`, phase: 'Review', schema: OUTLINE, effort: 'low' })
+    { label: `r${round}: outline + length`, phase: 'Review', schema: OUTLINE, effort: 'low', ...M('outline') })
   if (!outline) return { status: 'failed', stage: `round ${round} outline`, rounds }
 
-  const sheet = await panel(outline, residue, rejected, round, 'panel')
-  if (!sheet) return { status: 'failed', stage: `round ${round} converge`, rounds }
-  lastSheet = sheet
+  await criticsRead(outline, residue, rejected, round, 'panel')
+  const sa = await agent(`Two stages in one agent, in order (GH-487: the merge is a script run and rides with the apply instead of paying for a context of its own).
 
-  const applied = await agent(`Apply the converged critic sheet ${sheet.sheet_path} to ${ART} with the critic-apply skill: read ${SK}/critic-apply/SKILL.md and run its script as written.
+STAGE 1 — merge the critic-panel reports for ${ART}: ${CRITICS.map((n) => `${STEM}.critic-${n.toLowerCase()}.md`).join(', ')} (skip any that does not exist). Run ${SK}/critic-panel/scripts/converge.py on them with --out ${STEM}.critic-sheet.md --roster ${CRITICS.map((n) => n.toLowerCase()).join(',')}. If a report is refused as unparseable, fix only its headings and field labels to the literal format in ${SK}/critic-panel/SKILL.md (never its content) and re-run.
+From the sheet and the reports collect for your return: every convergent passage (2+ critics) with its first words, the shared reason, and the critic count; the paragraph moves; the declared defect classes; the consensus answer to each focus-list item from the Diagnoses (one line each); one line per open item R1, R2, ... in residue_answers, giving its number, the consensus (still present, fixed, not a defect) and how many critics answered it, with "unanswered" when none did; and the single-critic suggestion count. Return the sheet path as sheet_path.
+${COMMIT(`panel: <slug> (round ${round})`)} The body carries the convergent count, one line per convergent passage (first words and reason), one line per focus-list answer, and one line per open-item answer.
+
+STAGE 2 — apply the converged sheet ${STEM}.critic-sheet.md to ${ART} with the critic-apply skill: read ${SK}/critic-apply/SKILL.md and run its script as written.
 
 Pass as protected spans (write them to a temporary spans file):
 ${list(pre.protected_spans)}
@@ -388,9 +455,10 @@ Pass --cheap-paragraphs ${outline.cheap_paragraphs.join(',') || '(none)'} from r
 ${closedFlag()}
 Write the skill's candidate over ${ART}: cold review judges it next, as a commit, so a rejected attempt stays in history. ${COMMIT(`critic-apply: <slug> (round ${round}, candidate)`)} The body carries the applied/kept/declined counts and one line per target not applied, with its status.
 Return the article path as candidate_path, the counts, every convergent target that was not applied (first words plus the reason), every target that was applied (first words plus the change, one line each) as applied_targets, every target the log records with an applied- status as applied_quotes (its target_quote, its kind, and its paragraph number) from the skill's .critic-apply.json log, and HEAD after your commit as committed_sha.
-Then delete the three critic reports and the sheet. ${NO_PROSE}`,
-    { label: `r${round}: critic-apply`, phase: 'Review', schema: APPLY })
-  if (!applied) return { status: 'failed', stage: `round ${round} critic-apply`, rounds }
+Then delete the critic reports and the sheet. ${NO_PROSE}`,
+    { label: `r${round}: converge + apply`, phase: 'Review', schema: SHEET_APPLY, ...M('apply') })
+  if (!sa) return { status: 'failed', stage: `round ${round} converge + apply`, rounds }
+  const sheet = sa, applied = sa
 
   let cold = { verdict: 'ship as-is', reverts: [], committed_sha: applied.committed_sha }
   if (applied.applied > 0) {
@@ -417,7 +485,7 @@ ${list(pre.protected_spans)}
 ${closedFlag()}
 Convergent cuts and deletion-only trims apply directly with no model call; report any target that could not be placed (for example a span inside a list item, which critic-apply does not locate) instead of placing it by hand. Write the skill's candidate over ${ART}: cold review judges it next, as a commit. ${COMMIT(`iceberg: <slug> (round ${round}, candidate)`)} The body carries each leg's suggestion count, the applied/kept/declined counts, and one line per cut not applied, with its reason.
 Return the article path as candidate_path, the counts, every convergent target left unapplied (first words plus the reason), every cut that was applied (first words, one line each) as applied_targets, every target the log records with an applied- status as applied_quotes (its target_quote, its kind, and its paragraph number) from the skill's .critic-apply.json log, and HEAD after your commit as committed_sha. ${HYGIENE}`,
-    { label: `r${round}: iceberg apply`, phase: 'Review', schema: APPLY, effort: 'low' })
+    { label: `r${round}: iceberg apply`, phase: 'Review', schema: APPLY, effort: 'low', ...M('iceberg_apply') })
   let icebergCold = null
   if (iceberg && iceberg.applied > 0) {
     icebergCold = await coldReview(iceberg.committed_sha, round, 'iceberg', `r${round}: iceberg cold review`)
@@ -438,19 +506,23 @@ ${COMMIT(`ross: <slug> (round ${round}${fixRoss ? '' : ', read only'})`)} The bo
 Reserved, never fixed (report them): single-model findings, locked spans, rule tensions, the protected spans below, and any sentence the article's generation notes record as the author's own hand edit.
 Protected spans:
 ${list(pre.protected_spans)}
-Return the legs you ran (model names), every cross-family convergent finding as one line that starts with "FIXED:" or "NOT FIXED:", and the reserved items. ${NO_PROSE} ${HYGIENE}`,
-    { label: `r${round}: ross read`, phase: 'Review', schema: ROSS })
+Last, measure the round so far (GH-487): run git diff ${outline.round_start_sha} -- ${ART} and count added or removed lines, ignoring lines that are only rst: marker comments or whitespace. voice-critic runs after you and never edits, so your count closes the round: return prose_changed and changed_lines from it.
+Return the legs you ran (model names), every cross-family convergent finding as one line that starts with "FIXED:" or "NOT FIXED:", the reserved items, and prose_changed with changed_lines. ${NO_PROSE} ${HYGIENE}`,
+    { label: `r${round}: ross read`, phase: 'Review', schema: ROSS, ...M('ross') })
 
   const voice = VOICE_READY
     ? await agent(`voice-critic on ${ART}: read ${SK}/voice-critic/SKILL.md and run its script read-only with --judge --form ${pre.voice_form} --model ${pre.voice_model} --json, exactly these values: preflight resolved them, and a different form or model is not yours to choose. If the run fails, return the failure as one flag; do not retry with other arguments. Return the dimensions that FAIL and each flagged span as one line (dimension, quoted span, line range). Never edit anything. ${COMMIT(`voice-critic: <slug> (round ${round})`)} The body carries each dimension's verdict and the flagged spans. ${HYGIENE}`,
-      { label: `r${round}: voice-critic`, phase: 'Review', schema: VOICE, effort: 'low' })
+      { label: `r${round}: voice-critic`, phase: 'Review', schema: VOICE, effort: 'low', ...M('voice') })
     : { failed: [], flags: [`skipped: ${pre.has_voice_constitution ? (pre.voice_skip || 'preflight returned no form or judge') : 'no voice constitution found'}`] }
-
-  const diff = await agent(`Did round ${round} change the prose of ${ART}? Run git diff ${outline.round_start_sha} -- ${ART} and count added or removed lines, ignoring lines that are only rst: marker comments or whitespace. Return prose_changed and the count.`,
-    { label: `r${round}: diff`, phase: 'Review', schema: DIFF, effort: 'low' })
 
   lastRossOpen = rossOpen(ross, round)
   residue = [...applied.unapplied_convergent, ...sheet.paragraph_moves, ...lastRossOpen]
+  // The round's net applied edits, after cold review's reverts (GH-487):
+  // what critic-apply and iceberg landed and kept, plus ross's fixes.
+  const rossFixed = ross && ross.convergent ? ross.convergent.filter((l) => /^\s*FIXED\s*:/i.test(l)).length : 0
+  const netEdits = (cold.verdict === 'reject candidate' ? 0 : applied.applied - cold.reverts.length)
+    + (iceberg ? (icebergCold ? (icebergCold.verdict === 'reject candidate' ? 0 : iceberg.applied - icebergCold.reverts.length) : iceberg.applied) : 0)
+    + rossFixed
   rounds.push({
     round,
     words: outline.total_words,
@@ -467,12 +539,17 @@ Return the legs you ran (model names), every cross-family convergent finding as 
     iceberg: iceberg ? { applied: iceberg.applied, unapplied: iceberg.unapplied_convergent, cold: icebergCold ? icebergCold.verdict : 'not run', reverts: icebergCold ? icebergCold.reverts.length : 0 } : 'failed',
     ross: ross ? { legs: ross.legs, convergent: ross.convergent, reserved: ross.reserved } : 'failed',
     voice: voice || 'failed',
-    prose_changed: diff ? diff.prose_changed : true,
+    prose_changed: ross ? ross.prose_changed : true,
+    changed_lines: ross ? ross.changed_lines : null,
+    net_edits: netEdits,
     eroded: outline.eroded,
   })
-  log(`round ${round}: ${sheet.convergent.length} convergent, ${applied.applied} applied, cold review ${cold.verdict}, prose ${diff && !diff.prose_changed ? 'unchanged' : 'changed'}`)
+  log(`round ${round}: ${sheet.convergent.length} convergent, ${applied.applied} applied, cold review ${cold.verdict}, net ${netEdits} edit(s), prose ${ross && !ross.prose_changed ? 'unchanged' : 'changed'}`)
 
-  if (diff && !diff.prose_changed) { stable = true; break }
+  if (ross && !ross.prose_changed) { stable = true; stopReason = 'no-change'; break }
+  // Below the threshold this round read the near-final text: stop, and the
+  // separate final read is not run (GH-487).
+  if (netEdits < MIN_EDITS) { stable = true; stopReason = 'min-edits'; break }
 }
 
 // ---------------------------------------------------------------- Final read
@@ -481,7 +558,7 @@ if (!stable) {
   phase('Final read')
   log(`round cap ${MAX} reached with the text still changing: one read-only panel pass on the shipping text`)
   const o = await agent(`Prepare a read-only final panel read of ${ART}: build the reading copy with ${SK}/critic-panel/scripts/prepare_copy.py and return its path. ${pre.precheck_command ? `Run ${pre.precheck_command.replace('{article}', ART)} and return the total and flagged paragraphs.` : 'Return the prose word count and an empty flagged list.'} Return round_start_sha as HEAD and empty arrays for the reverse-outline fields. Change nothing.`,
-    { label: 'final: copy + length', phase: 'Final read', schema: OUTLINE, effort: 'low' })
+    { label: 'final: copy + length', phase: 'Final read', schema: OUTLINE, effort: 'low', ...M('final_prep') })
   if (o) {
     finalRead = await panel(o, residue, rejected, MAX + 1, 'final')
     if (finalRead) residue = [...finalRead.convergent.map((c) => `${c.passage} — ${c.why} (x${c.critics})`), ...finalRead.paragraph_moves, ...lastRossOpen]
@@ -501,10 +578,15 @@ ${list(rejected)}
 
 Then delete every remaining sidecar whose name starts with ${STEM} other than the article itself (critic copies, reports, sheets, *.applied.md, *.outline.md, JSON reports), list any you could not delete, and commit the file as "polish-prose: <slug> (generation note)" if it changed.
 Last, compute the run's text change for the caller: run git diff --word-diff=plain ${pre.baseline_sha} HEAD -- ${ART} and return it as word_diff, cut at 20000 characters with the line "[truncated: read the full diff on the branch]" appended when it is longer. The diff is the report's first exhibit — the caller reads it before any metric. Return HEAD and the leftover list.`,
-  { label: 'record', phase: 'Record', schema: RECORD, effort: 'low' })
+  { label: 'record', phase: 'Record', schema: RECORD, effort: 'low', ...M('record') })
 
 return {
   status: stable ? 'stable' : 'round-cap',
+  // Why the loop ended (GH-487): 'no-change' (a round changed nothing),
+  // 'min-edits' (a round's net edits fell below min_edits_for_next_round),
+  // or 'round-cap' (max_rounds reached with the text still changing).
+  stop_reason: stable ? stopReason : 'round-cap',
+  min_edits_for_next_round: MIN_EDITS,
   article: ART,
   // The text itself, ahead of every metric (GH-478): what changed, as a
   // word-diff against the baseline. The caller relays this first.

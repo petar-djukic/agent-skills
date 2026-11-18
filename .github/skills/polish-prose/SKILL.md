@@ -16,7 +16,7 @@ description: >-
   Workflow run. Triggers: improve this, polish this, make it better,
   tighten this, it's meh, it reads flat, clean up this draft, rewrite
   this, full rewrite, humanize and review, run the whole pipeline.
-argument-hint: '<file.md> [--humanize] [--max-rounds N] [--roster name] [--focus-file path] [--venue name] [--pangram]'
+argument-hint: '<file.md> [--humanize] [--max-rounds N] [--panel-only] [--roster name] [--focus-file path] [--venue name] [--pangram]'
 ---
 
 # Polish Prose (critics, until stable)
@@ -45,7 +45,13 @@ where a skipped step is impossible rather than unlikely.
 **It owns order and the loop, nothing else.** Every stage is one agent
 that reads the owning skill's SKILL.md and follows it. No stage command,
 model name, or threshold is restated here or in the script; when a
-stage changes, its own skill changes and this pipeline picks it up.
+stage changes, its own skill changes and this pipeline picks it up. The
+one model choice that is the pipeline's own is which tier each stage
+*agent* runs on (GH-487): six measured runs averaged ~84k tokens per
+agent with ~58k of it boot context, so the judgment-light stages run on
+smaller models while the persona critics and the Iceberg legs keep the
+session model. That choice never touches an owning skill's internal
+transport (critic-apply's `CRITIC_APPLY_MODEL`, voice-critic's judge).
 
 **Polish, not refine.** This pass works on lines and paragraphs: cuts,
 splits, diction, the announcing clause, the paragraph that restates the
@@ -85,6 +91,9 @@ the record; nothing is written to a sheet.
 | `humanize` | false | `true` runs the humanize chain once before the review loop; only for AI-drafted text that has not been through it |
 | `skip_humanize` | true | kept for older callers; it is the default, and it wins over `humanize` |
 | `max_rounds` | 3 | review rounds before the read-only final pass |
+| `min_edits_for_next_round` | 3 | a round whose net applied edits (after cold-review reverts) fall below this ends the loop: it already read the near-final text, and the separate final read is skipped (GH-487) |
+| `panel_only` | false | a verdict without the loop: preflight, the critics, one converge; no commits, and the run returns the sheet path and per-critic verdicts. Runs on any branch, main included, because it changes nothing (GH-487) |
+| `stage_models` | by stage | per-stage overrides of the stage agent's model tier, `{stage: model}`; an empty value means the session model. Stages: `preflight`, `humanize`, `step6`, `outline`, `critic`, `converge`, `apply`, `cold`, `iceberg`, `iceberg_apply`, `ross`, `voice`, `final_prep`, `record` (GH-487) |
 | `focus_file` | discovered | path to the caller's `critic-focus.md` |
 | `form` | inferred | the file's form; selects its constitution and voice-critic caps |
 | `venue` | inferred | passed to humanize's venue mode when the chain runs; preflight picks the `writing-voice/venues/` profile that fits the form (a paper section is `academic`) when the caller names none |
@@ -116,12 +125,11 @@ Every skip is named in the report, never silent.
 | Review, each round | annotate or audit, rank | reverse-outline | `reverse-outline` (markers, or empty with the audit) |
 | | length pre-check | the focus file's command | — (in the reverse-outline commit's body) |
 | | the roster in parallel, fresh contexts, focus brief answered by name | critic-panel Mode A | — (critics write sidecar reports) |
-| | merge | critic-panel `converge.py` | `panel`, empty, with the convergent passages and focus answers |
-| | rule-based application | critic-apply | `critic-apply … candidate`, the attempt itself |
+| | merge, then rule-based application, one agent: the merge is a script run and rides with the apply (GH-487) | critic-panel `converge.py` + critic-apply | `panel`, empty, with the convergent passages and focus answers; then `critic-apply … candidate`, the attempt itself |
 | | fresh-context entailment, reverts only | cold-review | `cold-review … critic-apply: <verdict>`: empty, reverts, or the baseline restored |
 | | CoT warrant tails removed by deletion only, two fresh legs carrying the focus brief, the draft's rules, and the panel's keep answers; keep-listed cuts reported, not applied (GH-416) | critic-panel `iceberg` roster + critic-apply | `iceberg … candidate` |
 | | fresh-context entailment on the Iceberg candidate, reverts only | cold-review | `cold-review … iceberg: <verdict>` |
-| | cross-family comprehension read | critic-panel Mode C | `ross` (fixes in rounds 1–2, empty with the findings after) |
+| | cross-family comprehension read; closes the round by measuring its net prose diff (GH-487) | critic-panel Mode C | `ross` (fixes in rounds 1–2, empty with the findings after) |
 | | voice audit | voice-critic | `voice-critic`, empty, with the verdicts |
 | Final read | read-only panel on the shipping text, when the round cap stopped the loop | critic-panel Mode A | `panel … final read`, empty |
 | Record | rst-marker strip (reverse-outline `strip`), generation-note entry when there is front matter, sidecar sweep, the word-diff for the report | — | yes |
@@ -134,9 +142,14 @@ rejected attempt stays readable with `git show`. The round's "did the prose
 change" test measures the net diff from the round's first commit, so an
 attempt that cold review undid does not count as change.
 
-The persona critics run on the session model; the ross read adds two
-Ollama models from different families, and only its cross-family
-convergence gets fixed.
+The persona critics and the Iceberg legs run on the session model; the
+ross read adds two Ollama models from different families, and only its
+cross-family convergence gets fixed. Every other stage agent runs on a
+smaller tier by default (GH-487) — mechanical stages (preflight,
+converge, record, the final-read prep, the ross agent's own
+orchestration) on the smallest, the judgment-light middle (critic-apply,
+cold review, reverse-outline, voice-critic, filter-tells Step 6) one
+up — overridable per stage with `stage_models`.
 
 ## The stopping rule
 
@@ -154,8 +167,14 @@ Iceberg legs are told not to re-propose, for the rest of the run
 three edits in all three rounds. The list is also enforced: each rejected
 change goes to critic-apply as data (`--closed`), which declines the same
 kind of change on the same passage however the panel rewords it (GH-467). The loop ends when a round changes nothing: that round
-was a read of the final text. At the round cap, one read-only panel
-pass runs on the final text, so the report always describes what ships.
+was a read of the final text. It also ends when a round's net applied
+edits (after cold-review reverts) fall below `min_edits_for_next_round`
+(GH-487): a round costs the same whether or not it finds anything, so a
+round that landed almost nothing was already the read of the near-final
+text, and the separate final read is skipped — the report says which
+rule stopped the loop (`stop_reason`). At the round cap, one read-only
+panel pass runs on the final text, so the report always describes what
+ships.
 
 The ross read fixes cross-family convergent findings in round 1,
 repairs regressions in round 2, then only reads (the batch cap). Whatever it
