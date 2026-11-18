@@ -34,6 +34,12 @@ result. The prompt was re-improvised per run; now it is versioned.
   numbers reattached to wrong claims, altered quotations (including
   reattributed judgment), hedges that change assertions, [CHECK] items
   no longer satisfied.
+- **Protected terms are exact, not entailed.** When the caller supplies
+  a protected-terms file (posture verbs, definition terms of art,
+  statement ids), a sentence carrying one is held to verbatim
+  preservation of that term: "checked" returning as "verified" is
+  damage even with the claim entailed — entailment alone passed exactly
+  that swap twice on 2026-11-17 (GH-477).
 - **Closed verdict vocabulary**: `ship as-is` | `ship with reverts:
   p<N>: <damage>` | `reject candidate: <why>`. The reviewer never
   proposes prose.
@@ -49,7 +55,8 @@ The prompt template with slots is
 ```bash
 # recall aid for the reviewer: mechanical drift per aligned paragraph
 python3 <skill>/scripts/cold_review.py screen \
-  --baseline base.md --candidate cand.md [--json]
+  --baseline base.md --candidate cand.md [--json] \
+  [--protected-terms terms.txt]
 
 # apply an accepted revert list, verbatim, with invariant re-checks
 python3 <skill>/scripts/cold_review.py apply \
@@ -57,7 +64,9 @@ python3 <skill>/scripts/cold_review.py apply \
 ```
 
 `screen` flags number-multiset changes (citations masked), citation
-changes, and altered double-quoted spans; it is a recall aid, not the
+changes, altered double-quoted spans, and — with `--protected-terms`,
+one term per line — any protected term a baseline paragraph carries
+that its candidate no longer holds verbatim; it is a recall aid, not the
 review — an inverted claim carries the same numbers and only the model
 catches it. `apply` swaps the named paragraphs back to the baseline text
 and re-checks the invariants on the written bytes: locked spans
