@@ -1,0 +1,69 @@
+# Register-inflation lexicon for match-voice's verification gate (GH-480).
+# One entry per line; # comments and blank lines skipped. An entry PRESENT
+# in a rewrite and ABSENT from its original paragraph is a fatal
+# introduced-inflation violation; entries already in the original never
+# flag. Matching is word-boundary, case-sensitive as written.
+#
+# Sources: the inflation-marking subset of filter-tells' BANNED_WORDS
+# (detect-lexical.sh), plus the connectives and buried-verb frames the
+# 2026-11-17 autogenic-systems runs introduced (agent-skills#477).
+
+# booster adjectives and adverbs (filter-tells BANNED_WORDS subset)
+critical
+critically
+key
+crucial
+crucially
+strategic
+strategically
+precisely
+absolutely
+fundamental
+fundamentally
+comprehensive
+comprehensively
+seamless
+seamlessly
+robustly
+overarching
+salient
+myriad
+plethora
+burgeoning
+nascent
+notably
+importantly
+remarkably
+
+# inflated verbs (filter-tells BANNED_WORDS subset)
+underpins
+underpinning
+dovetails
+illuminates
+illuminating
+delineate
+delineating
+encapsulate
+encapsulates
+leverage
+leverages
+leveraging
+
+# stock connectives, sentence-initial as written (the #477 evidence)
+Consequently,
+Furthermore,
+Moreover,
+Additionally,
+Eventually,
+
+# buried-verb and assurance frames (the #477 evidence)
+demands the use of
+serves as the basis for
+serves as the interface
+plays a role in
+plays a key role
+is inherent in
+yields three key
+necessitates the
+renders these
+stems from the need

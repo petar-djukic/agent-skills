@@ -210,6 +210,16 @@ When running the chain on spec YAML, the exclude-keys defaults apply
 automatically. For guard phrases, pass them explicitly on the drive.py or
 tighten.py command line, or configure them in the venue profile.
 
+**A caller-supplied protected-terms file (GH-481).** When the caller
+hands the chain a protected-terms file (polish-prose extracts one from
+the piece's focus brief: posture verbs, definition terms of art, pinned
+spellings and ids), every stage's transport runs with it — match-voice
+`--protected-terms`, and its terms passed as guard phrases where a stage
+takes only `--must-preserve` — and the chain derives no list of its own
+beside it. The file is the piece's exact vocabulary; a swap the gate
+would read as a synonym ("checked" → "verified") is the GH-477 damage
+class this exists to stop.
+
 ## Procedure
 
 ### Phase 0: Discover, resolve the venue, measure the baseline

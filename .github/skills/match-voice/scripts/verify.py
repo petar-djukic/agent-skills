@@ -266,8 +266,31 @@ def checks_in(verdict, severity=None):
             and (severity is None or f.get("severity") == severity)} - {""}
 
 
+INFLATION_LEXICON = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                 "inflation_lexicon.txt")
+
+
+def load_inflation_lexicon(path=None):
+    """GH-480: entries whose INTRODUCTION marks register inflation. One
+    per line, # comments skipped, matched word-boundary and
+    case-sensitive as written (connectives are listed capitalized with
+    their comma, so they match sentence-initial use)."""
+    entries = []
+    for line in open(path or INFLATION_LEXICON, encoding="utf-8"):
+        t = line.strip()
+        if t and not t.startswith("#"):
+            entries.append(t)
+    return entries
+
+
+def _inflation_pattern(entry):
+    head = r"\b" if re.match(r"\w", entry) else ""
+    tail = r"\b" if re.search(r"\w$", entry) else ""
+    return re.compile(head + re.escape(entry) + tail)
+
+
 def verify(original, rewritten, anchors_json=None, max_shared_run=8,
-           must_preserve=None, protected_terms=None):
+           must_preserve=None, protected_terms=None, inflation_lexicon=None):
     rewritten = normalize_ascii(rewritten)
     findings = []
 
@@ -282,6 +305,22 @@ def verify(original, rewritten, anchors_json=None, max_shared_run=8,
             if phrase in original and phrase not in rewritten:
                 findings.append({"check": "must-preserve", "severity": "fatal",
                                  "detail": f"guard phrase lost: {phrase!r}"})
+
+    # Register inflation, direction-aware (GH-480). On an author corpus
+    # plainer than the venue floor the transport inflates, and anchor
+    # similarity does not measure direction: the 2026-11-17 runs added
+    # "Consequently, ... demands the use of" and "three key consequences"
+    # to paragraphs that had neither. An entry the rewrite introduces is
+    # fatal; one the original already carries never flags.
+    entries = (load_inflation_lexicon() if inflation_lexicon is None
+               else inflation_lexicon)
+    introduced = [e for e in entries
+                  if _inflation_pattern(e).search(rewritten)
+                  and not _inflation_pattern(e).search(original)]
+    if introduced:
+        findings.append({"check": "introduced-inflation", "severity": "fatal",
+                         "detail": "the rewrite introduces inflation the "
+                                   f"original does not carry: {introduced}"})
 
     o_c, r_c = _citation_keys(original), _citation_keys(rewritten)
     for key, n in o_c.items():
@@ -414,13 +453,19 @@ def main():
     p.add_argument("--protected-terms", metavar="FILE",
                    help="protected-term list (protected_terms.py); a term "
                         "present in the original and lost in the rewrite is fatal")
+    p.add_argument("--inflation-lexicon", metavar="FILE",
+                   help="override the inflation lexicon beside this script; "
+                        "an entry the rewrite introduces is fatal (GH-480)")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
     terms = _pt.read_terms(args.protected_terms) if args.protected_terms else None
+    infl = (load_inflation_lexicon(args.inflation_lexicon)
+            if args.inflation_lexicon else None)
     result = verify(open(args.original).read(), open(args.rewrite).read(),
                     args.anchors_json, args.max_shared_run,
-                    must_preserve=args.must_preserve, protected_terms=terms)
+                    must_preserve=args.must_preserve, protected_terms=terms,
+                    inflation_lexicon=infl)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:

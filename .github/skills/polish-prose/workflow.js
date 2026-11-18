@@ -33,7 +33,7 @@ const NO_PROSE = 'You never write article prose yourself. Text changes only thro
 // history shows what each step did, not only what landed. A stage that
 // leaves the article unchanged commits empty, with its result in the body.
 const COMMIT = (subject) => `Then commit, whatever happened. If ${ART} changed, git add only ${ART} and commit it as "${subject}". If it did not change, run git commit --allow-empty with the subject "${subject}, no change". Either way the commit body (at most 20 lines) records what this stage found or decided: counts, verdicts, and one line per item it reports. Never commit sidecars.`
-const HYGIENE = `Before you return, delete every sidecar this stage created or consumed (reading copies, critic reports, sheets, *.applied.md, JSON reports), and only files whose names start with ${STEM}. The article file is the only file you may leave changed.`
+const HYGIENE = `Before you return, delete every sidecar this stage created or consumed (reading copies, critic reports, sheets, *.applied.md, JSON reports), and only files whose names start with ${STEM}. Never delete ${STEM}.protected-terms.txt: it is the run's shared input, and the Record stage sweeps it. The article file is the only file you may leave changed.`
 
 const PREFLIGHT = {
   type: 'object',
@@ -47,6 +47,7 @@ const PREFLIGHT = {
     precheck_command: { type: 'string' },
     form: { type: 'string' },
     protected_spans: { type: 'array', items: { type: 'string' } },
+    protected_terms_file: { type: 'string' },
     roster_name: { type: 'string' },
     roster: { type: 'array', items: { type: 'string' } },
     draft_rules: { type: 'array', items: { type: 'string' } },
@@ -59,7 +60,7 @@ const PREFLIGHT = {
     voice_model: { type: 'string' },
     voice_skip: { type: 'string' },
   },
-  required: ['ok', 'reason', 'branch', 'missing', 'focus_file', 'focus_items', 'precheck_command', 'form', 'protected_spans',
+  required: ['ok', 'reason', 'branch', 'missing', 'focus_file', 'focus_items', 'precheck_command', 'form', 'protected_spans', 'protected_terms_file',
     'roster_name', 'roster', 'draft_rules', 'has_front_matter', 'has_voice_corpus', 'has_voice_constitution', 'baseline_sha',
     'voice_form', 'voice_model', 'voice_skip', 'venue'],
 }
@@ -175,8 +176,10 @@ const RECORD = {
   properties: {
     committed_sha: { type: 'string' },
     sidecars_left: { type: 'array', items: { type: 'string' } },
+    markers_stripped: { type: 'number' },
+    word_diff: { type: 'string' },
   },
-  required: ['committed_sha', 'sidecars_left'],
+  required: ['committed_sha', 'sidecars_left', 'markers_stripped', 'word_diff'],
 }
 
 const list = (xs) => (xs && xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -188,6 +191,7 @@ const pre = await agent(`Preflight for a polish-prose run on ${ART}. The file ca
 1. Report the current git branch. ${A.validate_only ? 'This is a validate-only run, so any branch is acceptable.' : 'If it is main or master, set ok=false: this pipeline commits, and changes land only on worktree branches (loop workflow).'}
 2. Check that ${ART} exists and that each of these skill files exists: ${REQUIRED_SKILLS.map((s) => `${SK}/${s}/SKILL.md`).join(', ')}. List any missing path in "missing" and set ok=false if any are missing.
 3. Focus file: ${A.focus_file ? `use ${A.focus_file}.` : `walk up from the article's directory to the repository root looking for critic-focus.md; use the nearest one.`} If found, return its path, each named check as one string in focus_items (verbatim, one per check), and the deterministic pre-check command it names in precheck_command with {article} left as a placeholder. If none exists, return empty values: the panel then reads without a focus list, which is allowed.
+   From the found brief, also collect the piece's protected terms (GH-481): every term the brief itself names as vocabulary to keep exact — the backticked or quoted terms of its term-of-art item, the posture verbs, ids, and spellings of its pinned-facts item — verbatim, never inferred or added to. ${A.validate_only ? 'Return them in reason as a parenthetical count and write no file.' : `Write them one per line to ${STEM}.protected-terms.txt and return that path as protected_terms_file;`} with no brief or no such items, write nothing and return an empty string.
 4. Form: read the file to decide its form (how-to, essay, polemic, post, paper section, README, chapter, or the name of a constitution under constitutions/ that matches). ${A.form ? `The caller says the form is ${A.form}; use that.` : ''} If a constitution file exists for the form, return in protected_spans every span it requires that appears verbatim in the file (for a how-to: the bridge sentence, the learning-objectives paragraph, the "The steps" transition), quoted exactly. If a required span is missing from the file, say so in reason.
 5. Roster: read the roster table in ${SK}/critic-panel/references/personas.md. ${A.roster ? `The caller asks for roster ${JSON.stringify(A.roster)}; use it (a roster name or a list of persona names).` : 'Use "book" for a book chapter, "article" for everything else.'} Return roster_name and the persona names in roster order.
 6. The draft's own rules: per the "The draft's own rules" section of ${SK}/critic-panel/SKILL.md, list every rules file found beside or above the file (docs/constitutions/voice.yaml, docs/constitutions/argument.yaml, the chapter's SRD under docs/srd/, or a matching constitution under constitutions/) in draft_rules.
@@ -224,6 +228,7 @@ Commit each stage's output as it lands, one commit per stage, with the stage nam
 filter-tells Step 6 (the independent evaluator) is not yours to run: this workflow runs it after you, as its own agent in a fresh context, because the context that made the rewrites cannot be the one that judges them. Skip it, and say in your report that it was handed off.
 Respect locked spans and these protected spans verbatim:
 ${list(pre.protected_spans)}
+${pre.protected_terms_file ? `The piece's protected terms are in ${pre.protected_terms_file} (from the focus brief): every stage's transport runs with it as its protected-terms file (match-voice --protected-terms; the chain derives no list of its own), and keep the file in place for the review phase.` : ''}
 If a model call fails on TLS certificates, point SSL_CERT_FILE at certifi's bundle; read API keys only through the repository's secrets convention and never print them.
 ${NO_PROSE}
 ${HYGIENE}
@@ -292,7 +297,7 @@ ${COMMIT(tag === 'final' ? 'panel: <slug> (final read)' : `panel: <slug> (round 
 function coldReview(candidateSha, round, stage, label) {
   return agent(`Cold review, fresh context. You have not seen how the candidate was produced and must not ask.
 
-Read ${SK}/cold-review/SKILL.md and its prompt template ${SK}/cold-review/references/review-prompt.md. Baseline: ${ART} as committed at ${candidateSha}^ (the commit before the candidate; extract it with git show to a temporary file). Candidate: ${ART} as committed at ${candidateSha}, which is the working file now. Run the skill's screen, review paragraph by paragraph as the template specifies, and decide with its closed vocabulary.
+Read ${SK}/cold-review/SKILL.md and its prompt template ${SK}/cold-review/references/review-prompt.md. Baseline: ${ART} as committed at ${candidateSha}^ (the commit before the candidate; extract it with git show to a temporary file). Candidate: ${ART} as committed at ${candidateSha}, which is the working file now. Run the skill's screen${pre.protected_terms_file ? ` with --protected-terms ${pre.protected_terms_file}, and fill the template's PROTECTED TERMS slot from that file: a sentence carrying one is held to exact preservation of the term, not entailment` : ''}, review paragraph by paragraph as the template specifies, and decide with its closed vocabulary.
 
 - ship as-is: leave ${ART} as it is.
 - ship with reverts: run the skill's apply with your revert list against the baseline and write the result over ${ART}.
@@ -420,7 +425,7 @@ Return the article path as candidate_path, the counts, every convergent target l
 Run its session leg yourself from the --copy-only reading copy (forward-only, one sentence of lookback, every inference you had to make counts as a finding), then two cross-family Ollama legs with ${SK}/critic-panel/scripts/ross_read.py --model <name>, choosing two model families different from each other and from yours. Merge with converge.py.
 
 ${fixRoss
-    ? `${round === 1 ? 'Fix findings convergent ACROSS families on non-reserved prose.' : 'Fix only regressions the previous round introduced that are convergent across families; nothing else.'} Apply them with the critic-apply skill (${SK}/critic-apply/SKILL.md) using the merged ross sheet, with the protected spans below. Before writing it over ${ART}, run ${SK}/cold-review/scripts/cold_review.py screen with the current article as baseline and the fixed text as candidate, and revert (with its apply) every paragraph where a number, citation or quotation drifted. Then write the result over ${ART}.`
+    ? `${round === 1 ? 'Fix findings convergent ACROSS families on non-reserved prose.' : 'Fix only regressions the previous round introduced that are convergent across families; nothing else.'} Apply them with the critic-apply skill (${SK}/critic-apply/SKILL.md) using the merged ross sheet, with the protected spans below. Before writing it over ${ART}, run ${SK}/cold-review/scripts/cold_review.py screen with the current article as baseline and the fixed text as candidate${pre.protected_terms_file ? ` and --protected-terms ${pre.protected_terms_file}` : ''}, and revert (with its apply) every paragraph where a number, citation, quotation or protected term drifted. Then write the result over ${ART}.`
     : 'Read only this round: the batch cap (fix convergents in round 1, repair regressions in round 2, then stop) is reached. Change nothing.'}
 ${COMMIT(`ross: <slug> (round ${round}${fixRoss ? '' : ', read only'})`)} The body carries the legs and one line per cross-family convergent finding, fixed or not.
 Reserved, never fixed (report them): single-model findings, locked spans, rule tensions, the protected spans below, and any sentence the article's generation notes record as the author's own hand edit.
@@ -478,19 +483,25 @@ if (!stable) {
 
 // ---------------------------------------------------------------- Record
 phase('Record')
-const record = await agent(`${pre.has_front_matter ? `Record this polish-prose run in ${ART}'s front matter generation: block, following the provenance conventions the repository already uses there (append an entry, or start the block if there is none; never rewrite earlier entries).` : `${ART} has no front matter, so write no generation note: skip straight to the sidecar sweep below, and commit only if a sidecar was tracked.`} The entry names the pipeline (polish-prose), humanize seed reach (${hum.seed_reach}), the number of review rounds (${rounds.length}), whether the loop ended on a stable read (${stable}), per-round applied/kept/declined counts and cold-review verdicts:
+const record = await agent(`First strip the reverse-outline markers: count the '<!-- rst:' lines in ${ART}, then run python3 ${SK}/reverse-outline/scripts/rst_markers.py strip ${ART} --in-place. The markers are the review loop's scaffolding and never ship in the article. Return the count as markers_stripped, and commit the strip on its own as "reverse-outline strip: <slug> (record)" with the count in the body (skip the commit when the count is 0).
+${pre.has_front_matter ? `Then record this polish-prose run in ${ART}'s front matter generation: block, following the provenance conventions the repository already uses there (append an entry, or start the block if there is none; never rewrite earlier entries).` : `${ART} has no front matter, so write no generation note: after the strip, skip straight to the sidecar sweep below, and commit only if a sidecar was tracked.`} The entry names the pipeline (polish-prose), humanize seed reach (${hum.seed_reach}), the number of review rounds (${rounds.length}), whether the loop ended on a stable read (${stable}), per-round applied/kept/declined counts and cold-review verdicts:
 ${rounds.map((r) => `round ${r.round}: applied ${r.applied}, kept ${r.kept}, declined ${r.declined}, cold ${r.cold}, convergent ${r.convergent}`).join('\n')}
 the residue still open:
 ${list(residue)}
 and the edits cold review rejected, closed for the run (${rejected.length}):
 ${list(rejected)}
 
-Then delete every remaining sidecar whose name starts with ${STEM} other than the article itself (critic copies, reports, sheets, *.applied.md, *.outline.md, JSON reports), list any you could not delete, and commit the file as "polish-prose: <slug> (generation note)" if it changed. Return HEAD and the leftover list.`,
+Then delete every remaining sidecar whose name starts with ${STEM} other than the article itself (critic copies, reports, sheets, *.applied.md, *.outline.md, JSON reports), list any you could not delete, and commit the file as "polish-prose: <slug> (generation note)" if it changed.
+Last, compute the run's text change for the caller: run git diff --word-diff=plain ${pre.baseline_sha} HEAD -- ${ART} and return it as word_diff, cut at 20000 characters with the line "[truncated: read the full diff on the branch]" appended when it is longer. The diff is the report's first exhibit — the caller reads it before any metric. Return HEAD and the leftover list.`,
   { label: 'record', phase: 'Record', schema: RECORD, effort: 'low' })
 
 return {
   status: stable ? 'stable' : 'round-cap',
   article: ART,
+  // The text itself, ahead of every metric (GH-478): what changed, as a
+  // word-diff against the baseline. The caller relays this first.
+  word_diff: record ? record.word_diff : 'record stage failed; read git diff on the branch',
+  markers_stripped: record ? record.markers_stripped : null,
   venue: VENUE || null,
   pangram: PANGRAM ? 'opted in' : 'off',
   roster: CRITICS,

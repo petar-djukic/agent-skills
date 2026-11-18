@@ -110,10 +110,53 @@ def test_locked_span_invariant():
     print("  locked_span_invariant: ok")
 
 
+def test_protected_term_swap_is_flagged():
+    # The GH-477 class: "checked" returned as "verified" with the claim
+    # still entailed. Entailment passes it; the protected-term screen
+    # must not.
+    base = ("# T\n\nAn understandable one is read and checked before "
+            "it runs.\n\nIts operational half is illustrated by one "
+            "turn of the loop.\n")
+    cand = (base.replace("checked", "verified")
+                .replace("illustrated", "shown"))
+    with tempfile.TemporaryDirectory() as tmp:
+        b = _write(tmp, "b.md", base)
+        c = _write(tmp, "c.md", cand)
+        terms_file = _write(tmp, "terms.txt",
+                            "# posture verbs\nchecked\nillustrated\n")
+        terms = cr.load_protected_terms(terms_file)
+        findings = cr.screen(b, c, protected_terms=terms)
+        # Without the terms the screen stays silent on this pair.
+        silent = cr.screen(b, c)
+    assert silent == [], silent
+    flagged = {f["paragraph"]: f["drift"] for f in findings}
+    assert 1 in flagged and any("checked" in d for d in flagged[1]), findings
+    assert 2 in flagged and any("illustrated" in d
+                                for d in flagged[2]), findings
+    print("  protected_term_swap_is_flagged: ok")
+
+
+def test_protected_term_exact_forms():
+    # Word-boundary, case-sensitive: `$tool` matches exactly, and a term
+    # present in both sides never flags.
+    base = "# T\n\nThe machine routes `$tool` and stays checked.\n"
+    cand = "# T\n\nThe machine routes `$tool` and stays checked.\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        b = _write(tmp, "b.md", base)
+        c = _write(tmp, "c.md", cand)
+        terms_file = _write(tmp, "terms.txt", "$tool\nchecked\n")
+        terms = cr.load_protected_terms(terms_file)
+        findings = cr.screen(b, c, protected_terms=terms)
+    assert findings == [], findings
+    print("  protected_term_exact_forms: ok")
+
+
 if __name__ == "__main__":
     test_screen_names_the_swap()
     test_screen_names_a_lost_number()
     test_apply_reverts_verbatim()
     test_count_mismatch_refuses()
     test_locked_span_invariant()
+    test_protected_term_swap_is_flagged()
+    test_protected_term_exact_forms()
     print("all cold-review tests passed")

@@ -323,6 +323,7 @@ python3 <skill>/scripts/verify.py --original <paragraph-file> --rewrite <candida
 | Inline markup | `verify.py` | a `**bold**`, `*italic*`, `` `code` ``, or `[link](url)` span count that moves in either direction, or a bold lead-in returned as plain prose — same class as citation syntax. Dropped spans cost a section of lead-ins three of six; added spans were the largest single class of harness reverts (7 of 34), and a link flattened to a bare parenthetical URL was another. Added emphasis is now unwrapped before the gate sees it (GH-240), so this row fires on markup the strip cannot undo |
 | Em-dashes | `verify.py` | a dash the original did not have — manufactured punch, measured at 7 → 10 and 7 → 15 across two articles against a house limit of 2.0 per 500 words |
 | Anchor similarity | `verify.py` (match-structure shingles) | a long verbatim run copied from an exemplar |
+| Introduced inflation | `verify.py` (`inflation_lexicon.txt` beside it; `--inflation-lexicon` overrides) | a booster, stock connective, or buried-verb frame the rewrite introduces and the original does not carry — "Consequently,", "key", "demands the use of". Direction-aware: on an author corpus plainer than the venue floor the transport inflates, and anchor similarity does not measure direction; two 2026-11-17 runs shipped exactly this class (GH-477) |
 | Meaning entailment | **Claude**, per references/prompts.md | any claim weakened, added, or re-scoped |
 | Register | filter-tells lexical scan on the candidate | banned words — one machine register traded for another |
 
