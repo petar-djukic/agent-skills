@@ -7,20 +7,32 @@ description: >-
   default for any request to improve a whole piece of writing ("can you
   improve this", "make this better", "polish this", "this is meh", "it
   reads flat", "clean this up"), ahead of the single-stage skills it
-  runs. One multi-agent Workflow: the humanize chain once (filter-tells,
-  seeded match-voice, tighten-style, terminal inject-vernacular), then
-  the review loop — reverse-outline, a length pre-check, a critic panel
-  answering the caller's focus brief by name, critic-apply, cold review,
-  ross read, voice-critic — re-reading until a panel read of the final
-  text changes nothing. Line and paragraph work; restructuring a piece
+  runs. One multi-agent Workflow, the review loop: reverse-outline, a
+  length pre-check, a critic panel answering the caller's focus brief by
+  name, critic-apply, cold review, ross read, voice-critic, re-reading
+  until a panel read of the final text changes nothing. The humanize
+  chain runs first only when the caller passes humanize: true. Line and paragraph work; restructuring a piece
   is a separate refine pass. Invoking this skill is the opt-in to the
   Workflow run. Triggers: improve this, polish this, make it better,
   tighten this, it's meh, it reads flat, clean up this draft, rewrite
   this, full rewrite, humanize and review, run the whole pipeline.
-argument-hint: '<file.md> [--skip-humanize] [--max-rounds N] [--roster name] [--focus-file path] [--venue name] [--pangram]'
+argument-hint: '<file.md> [--humanize] [--max-rounds N] [--roster name] [--focus-file path] [--venue name] [--pangram]'
 ---
 
-# Polish Prose (humanize, then review until stable)
+# Polish Prose (critics, until stable)
+
+**Polish is the critics** (GH-483). The run is the review loop: the
+panel reads, critic-apply makes one narrow change per flagged passage,
+and cold review reverts any change the original does not entail. The
+humanize chain is not part of a polish unless the caller asks for it
+with `humanize: true`. The chain rewrites every paragraph, and on
+authored prose that is where the damage came from: two runs on a
+journal paper drifted claim-carrying sentences ("how the LAM looks and
+acts" became "the LAM's appearance and operation"; "level 4" became
+"level 4 and above"), and protected terms and an inflation lexicon
+(GH-477) did not stop the next run, because the drift lands in ordinary
+words no list names. The round-1 panel caught that drift both times.
+Opt in only for AI-drafted text that has not yet been through the chain.
 
 The pipeline used to live only as prose in the caller's workflow
 command, executed by hand one stage at a time. Prose rules get skipped:
@@ -70,11 +82,12 @@ the record; nothing is written to a sheet.
 | `article` (or `file`) | required | the markdown file to polish |
 | `skills_dir` | `.agents/skills` | where the owning skills live |
 | `roster` | by form | a critic-panel roster name or a list of persona names |
-| `skip_humanize` | false | review only: the text already went through the chain |
+| `humanize` | false | `true` runs the humanize chain once before the review loop; only for AI-drafted text that has not been through it |
+| `skip_humanize` | true | kept for older callers; it is the default, and it wins over `humanize` |
 | `max_rounds` | 3 | review rounds before the read-only final pass |
 | `focus_file` | discovered | path to the caller's `critic-focus.md` |
 | `form` | inferred | the file's form; selects its constitution and voice-critic caps |
-| `venue` | inferred | passed to humanize's venue mode; preflight picks the `writing-voice/venues/` profile that fits the form (a paper section is `academic`) when the caller names none |
+| `venue` | inferred | passed to humanize's venue mode when the chain runs; preflight picks the `writing-voice/venues/` profile that fits the form (a paper section is `academic`) when the caller names none |
 | `pangram` | false | `true` opts this run into Pangram uploads. Off by default, whatever the standing consent says: every stage then runs with `PANGRAM_CONSENT=off` and `--no-pangram`, and scores read "not measured" (GH-437) |
 | `validate_only` | false | preflight only: reports roster, focus file and skipped stages, changes nothing |
 
@@ -86,10 +99,10 @@ Run `validate_only` first in a repository the skill has not run in.
 |---|---|
 | a book chapter | the `book` roster (verdict critics) instead of `article` |
 | `docs/constitutions/*.yaml`, an SRD, a form constitution | every critic judges against those rules first (critic-panel's "The draft's own rules") |
-| no `writing-voice/` corpus | humanize is skipped: match-voice needs the exemplars |
+| no `writing-voice/` corpus | with `humanize: true`, humanize is skipped: match-voice needs the exemplars |
 | no voice constitution | voice-critic is skipped: it refuses without one |
 | a form voice-critic has no profile for (paper section, README, chapter), or no judge ready (no Cohere key and `gemma4:12b` not pulled) | voice-critic is skipped once, named in the skip list; `voice_critic.py --preflight` decides it and every round reuses its form and model |
-| no YAML front matter | no generation note; the report is the record |
+| no YAML front matter | no generation note; the report is the record. No stage may add front matter: reverse-outline's thesis proposal goes in its commit body, and Record removes any block a stage added |
 
 Every skip is named in the report, never silent.
 
@@ -98,7 +111,7 @@ Every skip is named in the report, never silent.
 | phase | stage | owning skill | commits |
 |---|---|---|---|
 | Preflight | branch check, skill paths, focus file, form, roster, the draft's rules, protected spans, baseline commit | — | baseline commit only |
-| Humanize | the chain, once, one commit per stage | humanize | one per stage |
+| Humanize (only with `humanize: true`) | the chain, once, one commit per stage | humanize | one per stage |
 | | filter-tells Step 6, the independent evaluator, in a fresh context that never saw the rewrites; its findings seed round 1's residue (GH-443) | filter-tells | `filter-tells step 6`, empty, with the verdict |
 | Review, each round | annotate or audit, rank | reverse-outline | `reverse-outline` (markers, or empty with the audit) |
 | | length pre-check | the focus file's command | — (in the reverse-outline commit's body) |
@@ -150,7 +163,7 @@ leaves unfixed, it hands on: every cross-family convergent finding still
 marked NOT FIXED joins the next round's residue, so the panel answers for
 it by name, and the run's final residue, so the report names it even
 after the batch cap (GH-439).
-Humanize runs once: re-running the chain on gated prose degraded it in
+When the caller opts in, humanize runs once: re-running the chain on gated prose degraded it in
 measurement (0.621 to 0.579 human, 2026-08-22), and the caller decides
 any further cycle from the seed-reach report.
 

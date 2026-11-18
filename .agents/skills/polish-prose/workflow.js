@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Petar Djukic. All rights reserved. SPDX-License-Identifier: MIT
 export const meta = {
   name: 'polish-prose',
-  description: 'Polish one prose file: humanize it, then loop critics, rule-based fixes and cold review until a panel read of the final text changes nothing',
-  whenToUse: 'Improve, polish, tighten or make better any prose a person reads end to end (essay, post, paper section, README, chapter): the humanize chain once, then reverse-outline, length pre-check, a critic panel answering the focus brief, critic-apply, cold review, ross read and voice-critic, re-reading until the text stops changing',
+  description: 'Polish one prose file: loop critics, rule-based fixes and cold review until a panel read of the final text changes nothing; the humanize chain runs only when the caller opts in',
+  whenToUse: 'Improve, polish, tighten or make better any prose a person reads end to end (essay, post, paper section, README, chapter): reverse-outline, length pre-check, a critic panel answering the focus brief, critic-apply, cold review, ross read and voice-critic, re-reading until the text stops changing. The humanize chain runs first only with humanize: true',
   phases: [
     { title: 'Preflight', detail: 'worktree branch, skill paths, focus file, baseline commit' },
-    { title: 'Humanize', detail: 'the humanize chain, once' },
+    { title: 'Humanize', detail: 'the humanize chain, once, only when the caller passes humanize: true' },
     { title: 'Review', detail: 'outline, length, panel, apply, cold review, ross, voice-critic; repeats while prose changes' },
     { title: 'Final read', detail: 'read-only panel on the shipping text when the round cap stopped the loop' },
     { title: 'Record', detail: 'generation note, sidecar sweep, report' },
@@ -13,6 +13,11 @@ export const meta = {
 }
 
 const A = args || {}
+// Polish is the critics (GH-483). On authored prose the humanize chain
+// rewrote every paragraph and drifted claim-carrying sentences through
+// ordinary words that no protected-term list or lexicon names (GH-477), while
+// the critic panel caught that drift. The chain runs only on explicit opt-in.
+const HUMANIZE_ON = A.humanize === true && !A.skip_humanize
 const ART = A.article || A.file
 if (!ART) throw new Error('polish-prose: args.article (path to the markdown file) is required')
 const SK = A.skills_dir || '.agents/skills'
@@ -26,7 +31,7 @@ const DEFAULT_ROSTER = ['Levine', 'Didion', 'Hemingway']
 // uploads only when the caller passes pangram: true.
 const PANGRAM = A.pangram === true
 const NO_UPLOAD = `No Pangram uploads in this run: the caller did not opt in (args.pangram). Run every command with PANGRAM_CONSENT=off in its environment, which the writing-voice rule makes win over a standing grant, and pass --no-pangram to every driver that accepts it. Record every Pangram score as "not measured". Where the skill's stop-at-the-upturn rule needs a score to stop on, run one pass and stop.`
-const REQUIRED_SKILLS = ['humanize', 'reverse-outline', 'critic-panel', 'critic-apply', 'cold-review', 'voice-critic']
+const REQUIRED_SKILLS = [...(HUMANIZE_ON ? ['humanize'] : []), 'reverse-outline', 'critic-panel', 'critic-apply', 'cold-review', 'voice-critic']
 
 const NO_PROSE = 'You never write article prose yourself. Text changes only through the owning skill: rewrites go through the rewrite transport, deletions and verbatim reverts apply mechanically.'
 // Every stage ends in a commit on the worktree branch (GH-434), so the
@@ -178,8 +183,9 @@ const RECORD = {
     sidecars_left: { type: 'array', items: { type: 'string' } },
     markers_stripped: { type: 'number' },
     word_diff: { type: 'string' },
+    front_matter_removed: { type: 'boolean' },
   },
-  required: ['committed_sha', 'sidecars_left', 'markers_stripped', 'word_diff'],
+  required: ['committed_sha', 'sidecars_left', 'markers_stripped', 'word_diff', 'front_matter_removed'],
 }
 
 const list = (xs) => (xs && xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -207,7 +213,8 @@ if (!pre || !pre.ok) {
 const CRITICS = pre.roster && pre.roster.length ? pre.roster : DEFAULT_ROSTER
 const VENUE = A.venue || pre.venue || ''
 const skipped = []
-if (!pre.has_voice_corpus) skipped.push('humanize (no writing-voice/ corpus found)')
+if (!HUMANIZE_ON) skipped.push('humanize (not requested: polish is the critics; pass humanize: true to run the chain)')
+else if (!pre.has_voice_corpus) skipped.push('humanize (no writing-voice/ corpus found)')
 if (!pre.has_voice_constitution) skipped.push('voice-critic (no voice constitution found)')
 else if (pre.voice_skip || !pre.voice_form || !pre.voice_model) skipped.push(`voice-critic (${pre.voice_skip || 'preflight returned no form or judge'})`)
 const VOICE_READY = pre.has_voice_constitution && !pre.voice_skip && pre.voice_form && pre.voice_model
@@ -219,8 +226,8 @@ if (A.validate_only) {
 
 // ---------------------------------------------------------------- Humanize
 phase('Humanize')
-let hum = { ran: false, seed_reach: 'skipped', stages: [], notes: A.skip_humanize ? 'skip_humanize set by caller' : 'no writing-voice/ corpus found; humanize needs its exemplars' }
-if (!A.skip_humanize && pre.has_voice_corpus) {
+let hum = { ran: false, seed_reach: 'skipped', stages: [], notes: HUMANIZE_ON ? 'no writing-voice/ corpus found; humanize needs its exemplars' : 'not requested: the review loop alone polishes; pass humanize: true to run the chain' }
+if (HUMANIZE_ON && pre.has_voice_corpus) {
   hum = await agent(`Run the humanize skill on ${ART}: read ${SK}/humanize/SKILL.md and follow it end to end, exactly as written, including its stage order, its measurements, and its report. ${VENUE ? `Use venue mode with --venue ${VENUE}.` : ''}
 ${PANGRAM ? '' : NO_UPLOAD}
 
@@ -361,7 +368,7 @@ for (let round = 1; round <= MAX; round++) {
   phase('Review')
   const outline = await agent(`Round ${round} start for ${ART}.
 
-1. reverse-outline: read ${SK}/reverse-outline/SKILL.md. If the article carries no rst: markers, run annotate (session-model labelling, as the skill specifies) and validate; otherwise run audit against the existing markers and check --renumber. Then run rank. ${COMMIT(`reverse-outline: <slug> (round ${round})`)} The body carries the audit result and rank's cheap and split paragraphs.
+1. reverse-outline: read ${SK}/reverse-outline/SKILL.md. If the article carries no rst: markers, run annotate (session-model labelling, as the skill specifies) and validate; otherwise run audit against the existing markers and check --renumber. Then run rank. If the article has no thesis: line, propose one in the commit body only, for the author to confirm: never write the proposal, or any front matter, into ${ART}. ${COMMIT(`reverse-outline: <slug> (round ${round})`)} The body carries the audit result and rank's cheap and split paragraphs.
 2. Return round_start_sha = HEAD after that commit, the paragraph numbers rank lists as cheap deletion candidates, the split paragraphs, and any paragraph audit marks eroded or changed.
 3. Build the critics' reading copy with ${SK}/critic-panel/scripts/prepare_copy.py and return its path (leave it on disk for the critics).
 4. ${pre.precheck_command ? `Run the length pre-check: ${pre.precheck_command.replace('{article}', ART)}. Return the prose word total and each flagged paragraph as one line (line number, word count, first words, over or DEFECT).` : 'No pre-check command was supplied; return total_words as the prose word count and an empty flagged list.'}
@@ -484,6 +491,7 @@ if (!stable) {
 // ---------------------------------------------------------------- Record
 phase('Record')
 const record = await agent(`First strip the reverse-outline markers: count the '<!-- rst:' lines in ${ART}, then run python3 ${SK}/reverse-outline/scripts/rst_markers.py strip ${ART} --in-place. The markers are the review loop's scaffolding and never ship in the article. Return the count as markers_stripped, and commit the strip on its own as "reverse-outline strip: <slug> (record)" with the count in the body (skip the commit when the count is 0).
+${pre.has_front_matter ? 'Return front_matter_removed = false.' : `Preflight found no front matter in ${ART}. If it now starts with a YAML front-matter block, a stage added it: remove that block (from the opening --- line through the closing --- line, and one blank line after it), commit the removal alone as "polish-prose: <slug> (remove added front matter)" with the removed block in the body, and return front_matter_removed = true; otherwise return false.`}
 ${pre.has_front_matter ? `Then record this polish-prose run in ${ART}'s front matter generation: block, following the provenance conventions the repository already uses there (append an entry, or start the block if there is none; never rewrite earlier entries).` : `${ART} has no front matter, so write no generation note: after the strip, skip straight to the sidecar sweep below, and commit only if a sidecar was tracked.`} The entry names the pipeline (polish-prose), humanize seed reach (${hum.seed_reach}), the number of review rounds (${rounds.length}), whether the loop ended on a stable read (${stable}), per-round applied/kept/declined counts and cold-review verdicts:
 ${rounds.map((r) => `round ${r.round}: applied ${r.applied}, kept ${r.kept}, declined ${r.declined}, cold ${r.cold}, convergent ${r.convergent}`).join('\n')}
 the residue still open:
@@ -502,6 +510,7 @@ return {
   // word-diff against the baseline. The caller relays this first.
   word_diff: record ? record.word_diff : 'record stage failed; read git diff on the branch',
   markers_stripped: record ? record.markers_stripped : null,
+  front_matter_removed: record ? record.front_matter_removed : null,
   venue: VENUE || null,
   pangram: PANGRAM ? 'opted in' : 'off',
   roster: CRITICS,
