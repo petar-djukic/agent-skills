@@ -175,8 +175,10 @@ const RECORD = {
   properties: {
     committed_sha: { type: 'string' },
     sidecars_left: { type: 'array', items: { type: 'string' } },
+    markers_stripped: { type: 'number' },
+    word_diff: { type: 'string' },
   },
-  required: ['committed_sha', 'sidecars_left'],
+  required: ['committed_sha', 'sidecars_left', 'markers_stripped', 'word_diff'],
 }
 
 const list = (xs) => (xs && xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -478,19 +480,25 @@ if (!stable) {
 
 // ---------------------------------------------------------------- Record
 phase('Record')
-const record = await agent(`${pre.has_front_matter ? `Record this polish-prose run in ${ART}'s front matter generation: block, following the provenance conventions the repository already uses there (append an entry, or start the block if there is none; never rewrite earlier entries).` : `${ART} has no front matter, so write no generation note: skip straight to the sidecar sweep below, and commit only if a sidecar was tracked.`} The entry names the pipeline (polish-prose), humanize seed reach (${hum.seed_reach}), the number of review rounds (${rounds.length}), whether the loop ended on a stable read (${stable}), per-round applied/kept/declined counts and cold-review verdicts:
+const record = await agent(`First strip the reverse-outline markers: count the '<!-- rst:' lines in ${ART}, then run python3 ${SK}/reverse-outline/scripts/rst_markers.py strip ${ART} --in-place. The markers are the review loop's scaffolding and never ship in the article. Return the count as markers_stripped, and commit the strip on its own as "reverse-outline strip: <slug> (record)" with the count in the body (skip the commit when the count is 0).
+${pre.has_front_matter ? `Then record this polish-prose run in ${ART}'s front matter generation: block, following the provenance conventions the repository already uses there (append an entry, or start the block if there is none; never rewrite earlier entries).` : `${ART} has no front matter, so write no generation note: after the strip, skip straight to the sidecar sweep below, and commit only if a sidecar was tracked.`} The entry names the pipeline (polish-prose), humanize seed reach (${hum.seed_reach}), the number of review rounds (${rounds.length}), whether the loop ended on a stable read (${stable}), per-round applied/kept/declined counts and cold-review verdicts:
 ${rounds.map((r) => `round ${r.round}: applied ${r.applied}, kept ${r.kept}, declined ${r.declined}, cold ${r.cold}, convergent ${r.convergent}`).join('\n')}
 the residue still open:
 ${list(residue)}
 and the edits cold review rejected, closed for the run (${rejected.length}):
 ${list(rejected)}
 
-Then delete every remaining sidecar whose name starts with ${STEM} other than the article itself (critic copies, reports, sheets, *.applied.md, *.outline.md, JSON reports), list any you could not delete, and commit the file as "polish-prose: <slug> (generation note)" if it changed. Return HEAD and the leftover list.`,
+Then delete every remaining sidecar whose name starts with ${STEM} other than the article itself (critic copies, reports, sheets, *.applied.md, *.outline.md, JSON reports), list any you could not delete, and commit the file as "polish-prose: <slug> (generation note)" if it changed.
+Last, compute the run's text change for the caller: run git diff --word-diff=plain ${pre.baseline_sha} HEAD -- ${ART} and return it as word_diff, cut at 20000 characters with the line "[truncated: read the full diff on the branch]" appended when it is longer. The diff is the report's first exhibit — the caller reads it before any metric. Return HEAD and the leftover list.`,
   { label: 'record', phase: 'Record', schema: RECORD, effort: 'low' })
 
 return {
   status: stable ? 'stable' : 'round-cap',
   article: ART,
+  // The text itself, ahead of every metric (GH-478): what changed, as a
+  // word-diff against the baseline. The caller relays this first.
+  word_diff: record ? record.word_diff : 'record stage failed; read git diff on the branch',
+  markers_stripped: record ? record.markers_stripped : null,
   venue: VENUE || null,
   pangram: PANGRAM ? 'opted in' : 'off',
   roster: CRITICS,
