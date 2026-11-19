@@ -523,6 +523,11 @@ Return the legs you ran (model names), every cross-family convergent finding as 
   const netEdits = (cold.verdict === 'reject candidate' ? 0 : applied.applied - cold.reverts.length)
     + (iceberg ? (icebergCold ? (icebergCold.verdict === 'reject candidate' ? 0 : iceberg.applied - icebergCold.reverts.length) : iceberg.applied) : 0)
     + rossFixed
+  // A round changed iff the measured diff says so; the model's boolean is
+  // advisory only (GH-489).
+  const roundChanged = ross
+    ? (Number.isInteger(ross.changed_lines) ? ross.changed_lines > 0 : ross.prose_changed)
+    : true
   rounds.push({
     round,
     words: outline.total_words,
@@ -539,14 +544,14 @@ Return the legs you ran (model names), every cross-family convergent finding as 
     iceberg: iceberg ? { applied: iceberg.applied, unapplied: iceberg.unapplied_convergent, cold: icebergCold ? icebergCold.verdict : 'not run', reverts: icebergCold ? icebergCold.reverts.length : 0 } : 'failed',
     ross: ross ? { legs: ross.legs, convergent: ross.convergent, reserved: ross.reserved } : 'failed',
     voice: voice || 'failed',
-    prose_changed: ross ? ross.prose_changed : true,
+    prose_changed: roundChanged,
     changed_lines: ross ? ross.changed_lines : null,
     net_edits: netEdits,
     eroded: outline.eroded,
   })
-  log(`round ${round}: ${sheet.convergent.length} convergent, ${applied.applied} applied, cold review ${cold.verdict}, net ${netEdits} edit(s), prose ${ross && !ross.prose_changed ? 'unchanged' : 'changed'}`)
+  log(`round ${round}: ${sheet.convergent.length} convergent, ${applied.applied} applied, cold review ${cold.verdict}, net ${netEdits} edit(s), prose ${roundChanged ? 'changed' : 'unchanged'}`)
 
-  if (ross && !ross.prose_changed) { stable = true; stopReason = 'no-change'; break }
+  if (!roundChanged) { stable = true; stopReason = 'no-change'; break }
   // Below the threshold this round read the near-final text: stop, and the
   // separate final read is not run (GH-487).
   if (netEdits < MIN_EDITS) { stable = true; stopReason = 'min-edits'; break }
