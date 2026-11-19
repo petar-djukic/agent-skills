@@ -499,15 +499,17 @@ Return the article path as candidate_path, the counts, every convergent target l
 
 Run its session leg yourself from the --copy-only reading copy (forward-only, one sentence of lookback, every inference you had to make counts as a finding), then two cross-family Ollama legs with ${SK}/critic-panel/scripts/ross_read.py --model <name>, choosing two model families different from each other and from yours. Merge with converge.py.
 
+In every round, the batch cap notwithstanding: an edit this round applied (the diff since ${outline.round_start_sha}) that the merged sheet flags as a cross-family convergent regression — it contradicts its neighbouring sentences or changes a claim — you revert verbatim to the round-start wording (git show ${outline.round_start_sha}:${ART} holds it) and report as one line starting "REVERTED:". A revert restores recorded wording and authors nothing (GH-491).
+
 ${fixRoss
     ? `${round === 1 ? 'Fix findings convergent ACROSS families on non-reserved prose.' : 'Fix only regressions the previous round introduced that are convergent across families; nothing else.'} Apply them with the critic-apply skill (${SK}/critic-apply/SKILL.md) using the merged ross sheet, with the protected spans below. Before writing it over ${ART}, run ${SK}/cold-review/scripts/cold_review.py screen with the current article as baseline and the fixed text as candidate${pre.protected_terms_file ? ` and --protected-terms ${pre.protected_terms_file}` : ''}, and revert (with its apply) every paragraph where a number, citation, quotation or protected term drifted. Then write the result over ${ART}.`
-    : 'Read only this round: the batch cap (fix convergents in round 1, repair regressions in round 2, then stop) is reached. Change nothing.'}
-${COMMIT(`ross: <slug> (round ${round}${fixRoss ? '' : ', read only'})`)} The body carries the legs and one line per cross-family convergent finding, fixed or not.
+    : 'Read only this round: the batch cap (fix convergents in round 1, repair regressions in round 2, then stop) is reached. Beyond the same-round reverts above, change nothing.'}
+${COMMIT(`ross: <slug> (round ${round}${fixRoss ? '' : ', read only'})`)} The body carries the legs and one line per cross-family convergent finding, fixed, reverted, or not.
 Reserved, never fixed (report them): single-model findings, locked spans, rule tensions, the protected spans below, and any sentence the article's generation notes record as the author's own hand edit.
 Protected spans:
 ${list(pre.protected_spans)}
 Last, measure the round so far (GH-487): run git diff ${outline.round_start_sha} -- ${ART} and count added or removed lines, ignoring lines that are only rst: marker comments or whitespace. voice-critic runs after you and never edits, so your count closes the round: return prose_changed and changed_lines from it.
-Return the legs you ran (model names), every cross-family convergent finding as one line that starts with "FIXED:" or "NOT FIXED:", the reserved items, and prose_changed with changed_lines. ${NO_PROSE} ${HYGIENE}`,
+Return the legs you ran (model names), every cross-family convergent finding as one line that starts with "FIXED:", "REVERTED:" or "NOT FIXED:", the reserved items, and prose_changed with changed_lines. ${NO_PROSE} ${HYGIENE}`,
     { label: `r${round}: ross read`, phase: 'Review', schema: ROSS, ...M('ross') })
 
   const voice = VOICE_READY
@@ -520,9 +522,13 @@ Return the legs you ran (model names), every cross-family convergent finding as 
   // The round's net applied edits, after cold review's reverts (GH-487):
   // what critic-apply and iceberg landed and kept, plus ross's fixes.
   const rossFixed = ross && ross.convergent ? ross.convergent.filter((l) => /^\s*FIXED\s*:/i.test(l)).length : 0
+  // A same-round regression ross reverted is an applied edit taken back, and
+  // it is closed so no later panel re-proposes it (GH-491, GH-438).
+  const rossReverts = ross && ross.convergent ? ross.convergent.filter((l) => /^\s*REVERTED\s*:/i.test(l)) : []
+  rossReverts.forEach((l) => rejected.push(`reverted by the ross read in round ${round} as a same-round regression, do not re-propose: ${l.replace(/^\s*REVERTED:?\s*/i, '')}`))
   const netEdits = (cold.verdict === 'reject candidate' ? 0 : applied.applied - cold.reverts.length)
     + (iceberg ? (icebergCold ? (icebergCold.verdict === 'reject candidate' ? 0 : iceberg.applied - icebergCold.reverts.length) : iceberg.applied) : 0)
-    + rossFixed
+    + rossFixed - rossReverts.length
   // A round changed iff the measured diff says so; the model's boolean is
   // advisory only (GH-489).
   const roundChanged = ross

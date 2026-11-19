@@ -177,7 +177,12 @@ panel pass runs on the final text, so the report always describes what
 ships.
 
 The ross read fixes cross-family convergent findings in round 1,
-repairs regressions in round 2, then only reads (the batch cap). Whatever it
+repairs regressions in round 2, then only reads (the batch cap). One
+exception holds in every round: an edit the same round applied that the
+cross-family read flags as a convergent regression is reverted verbatim
+to the round-start wording, so the min-edits stop cannot ship an edit
+the read refuted; the revert joins the closed list and counts against
+the round's net edits (GH-491). Whatever it
 leaves unfixed, it hands on: every cross-family convergent finding still
 marked NOT FIXED joins the next round's residue, so the panel answers for
 it by name, and the run's final residue, so the report names it even
