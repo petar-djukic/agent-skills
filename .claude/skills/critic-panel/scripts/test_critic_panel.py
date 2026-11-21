@@ -379,6 +379,54 @@ def _verdict(tmp, name, diag, findings, verdict):
                   VERDICT.format(diag=diag, findings=blocks, verdict=verdict))
 
 
+SCOPED = """## Diagnosis
+The opening paragraph argues a thesis it never states in one place.
+## Findings
+### 1
+Passage: Multi-agent applications wire several agents into one workflow.
+Finding: The claim is split across sentences three to five.
+Fix: State the thesis with its consequence first and introduce the checker once.
+Scope: paragraph
+### 2
+Passage: The bound comes from the checker.
+Finding: Restates the sentence before it.
+Fix: Cut it.
+## Verdict
+The reader loses the thread at the opening.
+"""
+
+
+class ParagraphScopeTest(unittest.TestCase):
+    """GH-499. A defect of the paragraph as a whole has no one sentence a
+    rewriter can take, so the finding carries its scope and the sheet carries
+    it to critic-apply as a `RESTRUCTURE:` lead."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.t = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_scope_parses_and_marks_only_its_finding(self):
+        r = converge.parse(_write(self.t, "ross.md", SCOPED))
+        self.assertEqual(len(r["items"]), 2)
+        self.assertTrue(converge.paragraph_scoped(r["items"][0]))
+        self.assertFalse(converge.paragraph_scoped(r["items"][1]))
+
+    def test_the_sheet_line_leads_with_restructure(self):
+        r = converge.parse(_write(self.t, "ross.md", SCOPED))
+        sheet = converge.render([r], converge.group([r]))
+        lines = [l for l in sheet.splitlines() if l.startswith("1. ") or l.startswith("2. ")]
+        self.assertIn('→ RESTRUCTURE: The claim is split', lines[0])
+        self.assertNotIn("RESTRUCTURE", lines[1])
+
+    def test_a_bold_scope_label_still_reads(self):
+        bold = SCOPED.replace("Scope: paragraph", "**Scope:** paragraph")
+        r = converge.parse(_write(self.t, "ross.md", bold))
+        self.assertTrue(converge.paragraph_scoped(r["items"][0]))
+
+
 class VerdictTest(unittest.TestCase):
     """GH-97. A diagnostician quotes the passage and names the defect; forcing
     that into `Replacement:` yields a line edit for a conceptual problem, so

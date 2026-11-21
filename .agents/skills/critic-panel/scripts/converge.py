@@ -31,6 +31,12 @@ comparison path. Items whose quotes match (difflib ratio >= THRESHOLD after
 whitespace/case normalization) are listed first: agreement between critics
 who could not see each other is the signal the panel exists to produce.
 
+A verdict finding may also carry `Scope: paragraph` when its defect is the
+paragraph as a whole rather than one sentence: the claim split across
+sentences, the point behind setup, an actor introduced twice (GH-499). Its
+line on the sheet starts `RESTRUCTURE:`, which is how critic-apply knows to
+route it to the author instead of a one-sentence rewrite.
+
 A suggest-only run renders exactly what it rendered before GH-97, pinned by
 scripts/testdata/panel2-golden-sheet.md — the sheet from the real Strategy
 Theatre panel, byte for byte.
@@ -52,7 +58,7 @@ KINDS = {
                 "required": ("Original", "Replacement"),
                 "body": "Replacement", "why": "Buys"},
     "verdict": {"section": "findings", "quote": "Passage",
-                "fields": ("Passage", "Finding", "Fix"),
+                "fields": ("Passage", "Finding", "Fix", "Scope"),
                 "required": ("Passage", "Finding"),
                 "body": "Finding", "why": "Fix"},
 }
@@ -64,7 +70,7 @@ KINDS = {
 # edit or a rerun. These normalise the report before parsing and the quote
 # before matching; the canonical format stays what SKILL.md documents.
 _LABELS = ("Original", "Replacement", "Buys", "Passage", "Finding", "Fix",
-           "Class", "Sweep", "Instance")
+           "Scope", "Class", "Sweep", "Instance")
 _BOLD_LABEL = re.compile(
     r"^(\s*(?:[-*]\s+|\d+[.)]\s+)?)\*\*(" + "|".join(_LABELS) + r")(:?)\*\*:?",
     re.M)
@@ -263,10 +269,22 @@ def order(reports, roster):
                   key=lambda r: (rank.get(r["critic"].lower(), len(rank)),))
 
 
+RESTRUCTURE = "RESTRUCTURE: "
+
+
+def paragraph_scoped(s):
+    """A verdict finding about the paragraph as a whole (GH-499)."""
+    return s.get("Scope", "").strip().lower().startswith("paragraph")
+
+
 def _body(s):
-    """`what is wrong — why it matters`, in the item's own kind's words."""
+    """`what is wrong — why it matters`, in the item's own kind's words.
+
+    A paragraph-scoped finding leads with `RESTRUCTURE:` so the sheet itself
+    carries the scope; critic-apply reads the sheet, never the reports."""
     spec = KINDS[s["kind"]]
-    return f"{s[spec['body']]} — *{s.get(spec['why'], '')}*"
+    lead = RESTRUCTURE if paragraph_scoped(s) else ""
+    return f"{lead}{s[spec['body']]} — *{s.get(spec['why'], '')}*"
 
 
 def render(reports, groups, classes=None):
