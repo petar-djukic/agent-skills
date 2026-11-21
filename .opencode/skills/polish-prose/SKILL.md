@@ -121,7 +121,7 @@ Every skip is named in the report, never silent.
 |---|---|---|---|
 | Preflight | branch check, skill paths, focus file, form, roster, the draft's rules, protected spans, baseline commit | — | baseline commit only |
 | Humanize (only with `humanize: true`) | the chain, once, one commit per stage | humanize | one per stage |
-| | filter-tells Step 6, the independent evaluator, in a fresh context that never saw the rewrites; its findings seed round 1's residue (GH-443) | filter-tells | `filter-tells step 6`, empty, with the verdict |
+| | filter-tells Step 6, the independent evaluator, in a fresh context that never saw the rewrites; its findings seed round 1's residue (GH-443); after the rounds, the same evaluator runs once more on the shipping text, since critic-apply and the Iceberg pass write prose the chain never scanned — with humanize off it is the run's only filter-tells coverage — and its findings land in the residue (GH-493) | filter-tells | `filter-tells step 6`, empty, with the verdict |
 | Review, each round | annotate or audit, rank | reverse-outline | `reverse-outline` (markers, or empty with the audit) |
 | | length pre-check | the focus file's command | — (in the reverse-outline commit's body) |
 | | the roster in parallel, fresh contexts, focus brief answered by name | critic-panel Mode A | — (critics write sidecar reports) |

@@ -499,6 +499,38 @@ def test_paired_universal_wired_into_paragraph_and_analyze():
     print("  paired_universal_wired_into_paragraph_and_analyze: ok")
 
 
+def test_semicolon_aphorism_positive_balanced_pair():
+    r = ds.detect_semicolon_aphorisms([("a.md",
+        "The checker and the engine produce the bound; "
+        "the language is the form that makes both possible.")])
+    assert len(r) == 1, r
+    assert "the language is the form" in r[0]["sentence"]
+    print("  semicolon_aphorism_positive_balanced_pair: ok")
+
+
+def test_semicolon_aphorism_negative_connective_and_citation():
+    negs = [
+        "However, the loader accepts it; the engine then fails the run at once.",
+        "The run ends there; so the engine raises its signal.",
+        "The gate reads three files: the machine; the tools are second.",
+        "The table lists 23 fixtures; the build checks every one of them.",
+        "The budget is spent [@kim-2026]; the run is over.",
+    ]
+    for n in negs:
+        r = ds.detect_semicolon_aphorisms([("a.md", n)])
+        assert r == [], (n, r)
+    print("  semicolon_aphorism_negative_connective_and_citation: ok")
+
+
+def test_semicolon_aphorism_negative_long_clause():
+    r = ds.detect_semicolon_aphorisms([("a.md",
+        "It reads the closure the loader already resolves and keeps it whole; "
+        "the exporter is the mirror of the shipped emit resolution exactly as "
+        "the appendix describes it in detail.")])
+    assert r == [], r
+    print("  semicolon_aphorism_negative_long_clause: ok")
+
+
 def main():
     test_paired_universal_every_x_and_every_y()
     test_paired_universal_every_apart_in_one_sentence()
@@ -535,6 +567,9 @@ def main():
     test_consequence_echo_negative_low_overlap()
     test_consequence_echo_wired_into_paragraph()
     test_consequence_echo_advisory_in_analyze()
+    test_semicolon_aphorism_positive_balanced_pair()
+    test_semicolon_aphorism_negative_connective_and_citation()
+    test_semicolon_aphorism_negative_long_clause()
     print("test_detect_structural: all assertions passed")
 
 
