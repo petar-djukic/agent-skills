@@ -132,6 +132,26 @@ flagged 126 of 217 prose paragraphs, 39 of them so badly the reader loses
 the thread (petar-djukic/agent-skills#498). Ross joined the `book` roster
 for the same reason.
 
+### The claim-loss leg (optional caller input)
+
+When the caller names a baseline — the text as it stood before the current
+chain of passes — run `scripts/claim_loss.py <article.md> --baseline
+<file | rev:path>` and give its sheet to one more fresh verdict critic. The
+sheet pairs each changed paragraph with its baseline version and lists,
+per baseline sentence, whether its content words are now spread over two or
+more sentences and which words it lost. The critic reports, with `Scope:
+paragraph`, each paragraph whose claim, predicate, or consequence the
+current version no longer carries in one place. The word lists are recall
+aids: a fix can be right to cut a word.
+
+The leg exists because every pass reviews the current text and none the
+text the chain started from. Two narrow passes split the Loom
+Introduction's one-sentence thesis across three sentences, and the panel
+that checked the second pass never saw the first version
+(petar-djukic/agent-skills#498); on that pair the sheet reports "baseline
+sentence 3 is now carried by current sentences 3, 4" and the lost
+predicates "declaring, keeps, readable, checkable".
+
 ### A read binds only the text it read
 
 Same rule as Mode C's re-run position: a panel read is evidence about
