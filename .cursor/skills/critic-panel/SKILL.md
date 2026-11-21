@@ -306,6 +306,19 @@ constitution. Present, they go into every critic's prompt; absent, the
 critics stand alone. A chapter whose book has declared its goals is tested
 against *those* goals.
 
+A contract can also hold a defect in place. A paragraph drafted from an SRD
+say can come out as the say's clauses in order, one sentence each; it then
+discharges the contract rather than building one point, critics briefed that
+the SRD is the contract do not propose breaking the say, and each narrow fix
+mirrored back into the say tightens the transcription. Before the panel, run
+`scripts/say_transcription.py <chapter.md> <srd.md> [...]`: it flags each
+paragraph of three or more sentences whose sentences mostly follow one say's
+clauses in order. A flag is not a finding; it tells the author that a
+restructure of that paragraph must revise its say in the same change, so the
+contract does not freeze the split. On the Loom Introduction it flags the
+opening, five of five sentences in its say's order
+(petar-djukic/agent-skills#498).
+
 ## Mode B: socratic
 
 No rewrites. One fresh-context critic reads the copy and returns a
