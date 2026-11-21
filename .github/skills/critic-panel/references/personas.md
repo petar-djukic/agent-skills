@@ -30,7 +30,7 @@ prose into the draft and are bound only by the locked-span and exhibit rules.
 | Roster | Personas | Kind |
 |---|---|---|
 | `article` (default) | Levine, Didion, Hemingway | `suggest` |
-| `book` | Fowler, Yegge, Deitel, Miller, Cook, Kreischer | `verdict` |
+| `book` | Fowler, Yegge, Deitel, Miller, Ross, Cook, Kreischer | `verdict` |
 | `line` | Ross | `verdict` |
 | `titles` | Evans, Kilgore | `suggest` (Mode D: front-matter unit) |
 | `iceberg` | Iceberg, run as two fresh legs | `suggest` (deletions only) |
@@ -78,6 +78,77 @@ would chop rather than quicken.
 
 **Targets**: sentences that explain what the previous sentence already showed;
 the one paragraph the piece is faster without.
+
+---
+
+## The paragraph-unity check (every verdict critic)
+
+**Given to**: every `verdict`-kind critic in a panel, beside its persona
+brief, whatever the roster (GH-499).
+
+No persona owns the paragraph as a unit. Fowler reads terms, Miller logic,
+Williams the joints between paragraphs — and a section's first paragraph has
+no incoming joint. A paragraph whose claim is spread across its sentences has
+no one sentence to quote, so under a finding cap it loses to sentences that
+do. The check makes every diagnostician ask, of every prose paragraph, the
+question none of them owns: does it read as one argument a reader arriving
+cold follows on a first read?
+
+**Answer it in the Diagnosis** — name the paragraphs that fail, or say none
+do — then report each failing paragraph as a finding with `Scope:
+paragraph`, its `Passage` the paragraph's first sentence, its `Fix` the
+move described (reorder, merge, split, state the claim first, name the
+bridge, cut), never the prose. A paragraph-scoped finding is routed to the
+author, not to a one-sentence rewriter.
+
+A paragraph fails when any of these holds:
+
+- **opener-not-point** — the first sentence does not state what the
+  paragraph argues; a reader who stops there does not have the point. A
+  setup clause is fine when the point lands in the same sentence.
+- **split-claim** — the one claim is assembled from several sentences, or
+  sits in a trailing clause (", so …") of a later sentence, or the sentence
+  that states it has a predicate too weak to say why it matters.
+- **topic-churn** — the grammatical subject changes in nearly every
+  sentence with no thread.
+- **actor-twice** — one actor, term, or mechanism is introduced twice with
+  different descriptions.
+- **missing-bridge** — the paragraph assumes a step the reader has not been
+  given at this point; name what the reader knows and what the text assumes.
+- **two-read** — a sentence a cold reader must read twice to parse, when it
+  breaks the paragraph's argument rather than its style.
+- **recap or count-back** — a sentence restating what the paragraph already
+  said, or one that makes the reader count back through a list ("the last of
+  the three").
+
+Leave diction, register, spelling, and terms of art to the persona briefs
+and the scanners. Length alone is not a failure: a long paragraph whose
+point is in its first sentence and that holds one thread passes.
+
+**A paragraph that fails** (the Loom paper's Introduction opening, which a
+three-critic book panel passed and the author caught on a cold read,
+petar-djukic/agent-skills#498):
+
+> Multi-agent applications built on Large AI Models (LAMs) wire several
+> agents, each with a defined job, into one workflow. The LAM inside each
+> agent is probabilistic: the same input can produce a different run, and
+> the set of replies it may give cannot be listed in advance. We argue that
+> such an application can be written down as data: a set of specifications,
+> one per agent and one for the application that joins them. A checker
+> verifies the set as a whole before anything runs, and one fixed engine
+> runs them, so the application is read and checked before it is deployed
+> and its behaviour in operation stays bounded despite the LAMs inside it.
+> The bound comes from the checker, which refuses a specification that
+> leaves a declared outcome unhandled, and from the engine, which holds
+> every run to the transitions the specification declares.
+
+The opener defines while the paragraph argues a thesis (opener-not-point);
+the thesis sentence says only "can be written down as data", and why it
+matters sits in the next sentence's trailing "so" clause (split-claim);
+five sentences, five subjects (topic-churn); the checker and engine arrive
+in sentence four and again in sentence five with new descriptions
+(actor-twice); nothing says how unlistable replies become declared outcomes
+(missing-bridge).
 
 ---
 

@@ -16,7 +16,9 @@ description: >-
   original/replacement edits, verdict critics quote the passage and state
   the finding without rewriting it. Named rosters: article (Levine,
   Didion, Hemingway) for essays, book (Fowler, Yegge, Deitel, Miller,
-  Cook, Kreischer) for chapter drafts, or any ad-hoc mix. The skill never
+  Ross, Cook, Kreischer) for chapter drafts, or any ad-hoc mix; every
+  verdict critic also answers the paragraph-unity check, and a
+  paragraph-scoped finding is routed to the author as a restructure. The skill never
   applies anything; the author picks, and the picks become an
   author-directed cycle. Triggers: critic panel, read it like Levine, pace
   critic, turn of phrase, it's only fine, socratic read, interrogate the
@@ -60,7 +62,9 @@ terminal stage (inject-vernacular)
    with its persona brief from
    [references/personas.md](./references/personas.md), the constraints its
    kind carries, and the report format its kind prescribes, writing to
-   `<stem>.critic-<name>.md`. **The headings below are literal and the report
+   `<stem>.critic-<name>.md`. Every `verdict`-kind critic also gets
+   [the paragraph-unity check](#the-paragraph-unity-check), whatever the
+   roster. **The headings below are literal and the report
    is machine-read** — `## Suggestions`, not `## Ten line-level suggestions`.
    Step 3 refuses a report it cannot parse rather than merging it as empty.
 3. Merge: `scripts/converge.py <reports…> --out <stem>.critic-sheet.md
@@ -106,6 +110,48 @@ knows to look for: briefed with the author's verdict, a panel converged
 in one pass on three defect classes the same roster's generic read had
 surfaced none of (substack GH-634/GH-636).
 
+### The paragraph-unity check
+
+Every verdict critic answers it, beside its persona and any focus brief:
+does each prose paragraph read as one argument a reader arriving cold
+follows on a first read? The seven failure classes and a worked example
+are in [references/personas.md](./references/personas.md#the-paragraph-unity-check-every-verdict-critic).
+A failing paragraph is a finding with `Scope: paragraph`, quoted by its
+first sentence; the sheet renders it with a `RESTRUCTURE:` lead, and
+[critic-apply](../critic-apply/SKILL.md) routes it to the author instead
+of a one-sentence rewrite.
+
+The check exists because no persona owned the paragraph. A three-critic
+book panel (Fowler, Miller, Williams) passed the Loom paper's Introduction
+opening, whose thesis two narrow passes had split across three sentences;
+Williams reads joints and a first paragraph has none, Fowler's fix for the
+unit of specification lengthened the weakest sentence, and the defect had no
+one sentence to quote. A fresh Ross read of the same paragraph, given only
+the persona, flagged it at once, and a full-paper read with this check
+flagged 126 of 217 prose paragraphs, 39 of them so badly the reader loses
+the thread (petar-djukic/agent-skills#498). Ross joined the `book` roster
+for the same reason.
+
+### The claim-loss leg (optional caller input)
+
+When the caller names a baseline — the text as it stood before the current
+chain of passes — run `scripts/claim_loss.py <article.md> --baseline
+<file | rev:path>` and give its sheet to one more fresh verdict critic. The
+sheet pairs each changed paragraph with its baseline version and lists,
+per baseline sentence, whether its content words are now spread over two or
+more sentences and which words it lost. The critic reports, with `Scope:
+paragraph`, each paragraph whose claim, predicate, or consequence the
+current version no longer carries in one place. The word lists are recall
+aids: a fix can be right to cut a word.
+
+The leg exists because every pass reviews the current text and none the
+text the chain started from. Two narrow passes split the Loom
+Introduction's one-sentence thesis across three sentences, and the panel
+that checked the second pass never saw the first version
+(petar-djukic/agent-skills#498); on that pair the sheet reports "baseline
+sentence 3 is now carried by current sentences 3, 4" and the lost
+predicates "declaring, keeps, readable, checkable".
+
 ### A read binds only the text it read
 
 Same rule as Mode C's re-run position: a panel read is evidence about
@@ -124,7 +170,7 @@ them.
 | Roster | Personas | Kind |
 |---|---|---|
 | `article` (default) | Levine, Didion, Hemingway | `suggest` |
-| `book` | Fowler, Yegge, Deitel, Miller, Cook, Kreischer | `verdict` |
+| `book` | Fowler, Yegge, Deitel, Miller, Ross, Cook, Kreischer | `verdict` |
 | `line` | Ross | `verdict` |
 | `titles` | Evans, Kilgore | `suggest` (Mode D: front-matter unit) |
 | `iceberg` | Iceberg ×2 legs | `suggest`, deletions only: CoT warrant tails |
@@ -176,6 +222,7 @@ Sweep: <the scope the author must check for more>
 Passage: <the exact passage, verbatim, so it can be found>
 Finding: <what is wrong with it, in this critic's terms>
 Fix: <what would fix it, described — never written as replacement prose>
+Scope: <paragraph, when the defect is the paragraph as a whole; omit the line otherwise>
 …
 ## Defect classes
 ### A
@@ -258,6 +305,19 @@ chapter's SRD under `docs/srd/`, walking up as voice-critic does for the
 constitution. Present, they go into every critic's prompt; absent, the
 critics stand alone. A chapter whose book has declared its goals is tested
 against *those* goals.
+
+A contract can also hold a defect in place. A paragraph drafted from an SRD
+say can come out as the say's clauses in order, one sentence each; it then
+discharges the contract rather than building one point, critics briefed that
+the SRD is the contract do not propose breaking the say, and each narrow fix
+mirrored back into the say tightens the transcription. Before the panel, run
+`scripts/say_transcription.py <chapter.md> <srd.md> [...]`: it flags each
+paragraph of three or more sentences whose sentences mostly follow one say's
+clauses in order. A flag is not a finding; it tells the author that a
+restructure of that paragraph must revise its say in the same change, so the
+contract does not freeze the split. On the Loom Introduction it flags the
+opening, five of five sentences in its say's order
+(petar-djukic/agent-skills#498).
 
 ## Mode B: socratic
 

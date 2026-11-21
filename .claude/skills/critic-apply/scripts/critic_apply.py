@@ -331,6 +331,37 @@ _DEFINES = re.compile(
     re.I)
 
 
+# A paragraph-level finding (GH-500). critic-panel marks a finding scoped to
+# the paragraph as a whole with a RESTRUCTURE: lead; a critic that left the
+# scope off still gives it away in its fix, which moves material between
+# sentences or paragraphs. The rewrite transport changes one sentence inside
+# one paragraph, so it cannot take such a finding: applied as a local edit it
+# lengthens a sentence and leaves the split in place, which is how the Loom
+# Introduction's opening lost its claim across two narrow passes
+# (petar-djukic/agent-skills#498).
+RESTRUCTURE = re.compile(r"^\s*RESTRUCTURE:\s*")
+_REORGANIZES = re.compile(
+    r"\b(split (?:the|this|it|that) (?:paragraph |passage )?(?:in two|into|at)|"
+    r"into (?:two|three|separate) paragraphs|(?:its|their) own paragraph|"
+    r"(?:merge|combine) (?:the|these|this|those) (?:two |three )?(?:paragraphs|sentences)|"
+    r"reorder (?:the |this )?(?:paragraph|sentences|clauses)|"
+    r"(?:open|lead) (?:the paragraph )?(?:with|on) (?:the|its) (?:claim|point|thesis)|"
+    r"state (?:the|its) (?:claim|point|thesis) first|"
+    r"move (?:it|this|them|the \w+(?: \w+)?) (?:to|into) (?:the (?:next|previous|following) paragraph|"
+    r"a (?:separate|new) paragraph|another paragraph))\b",
+    re.I)
+
+
+def _restructure(t):
+    """The cause, when the target is a paragraph-level finding, else None."""
+    for e in t["entries"]:
+        if RESTRUCTURE.match(e.get("body", "")):
+            return "the critics scoped it to the paragraph (RESTRUCTURE)"
+    text = " ".join(f"{e.get('body', '')} {e.get('why', '')}" for e in t["entries"])
+    m = _REORGANIZES.search(text)
+    return f"the fix reorganizes the paragraph (\"{m.group(0)}\")" if m else None
+
+
 def _asks_for_definition(t):
     text = " ".join(f"{e.get('body', '')} {e.get('why', '')}" for e in t["entries"])
     m = _DEFINES.search(text)
@@ -349,6 +380,16 @@ def _decide(paras, t, protected, cheap, closed=()):
     bodies = [e["body"] for e in t["entries"]]
     is_cut = any(CUT.match(b) for b in bodies)
 
+    # Before the convergence rule: a single critic's paragraph-level finding
+    # still reaches the author, because no later panel sees what it saw.
+    restructure = _restructure(t)
+    if restructure:
+        rec["status"] = "routed-restructure"
+        rec["cause"] = (f"{restructure}; a one-sentence rewrite cannot take it, "
+                        "so it goes to the author")
+        rec["fix"] = next((e["why"] for e in t["entries"] if e["why"]),
+                          RESTRUCTURE.sub("", t["entries"][0]["body"]))
+        return rec, None
     if t["convergent"] and any(DISSENT.match(b) for b in bodies) \
             and not all(DISSENT.match(b) for b in bodies):
         rec["status"] = "skipped-split-panel"
@@ -600,6 +641,8 @@ def counts(records):
             "kept": sum(v for k, v in c.items() if k.startswith("kept")),
             "declined_by_rule": sum(v for k, v in c.items()
                                     if k.startswith(("declined", "skipped"))),
+            "routed_to_author": sum(v for k, v in c.items()
+                                    if k.startswith("routed")),
             "by_status": c}
 
 
@@ -667,7 +710,8 @@ def main():
     for k, v in sorted(summary["by_status"].items()):
         print(f"  {k}: {v}")
     print(f"applied: {summary['applied']}  kept: {summary['kept']}  "
-          f"declined-by-rule: {summary['declined_by_rule']}")
+          f"declined-by-rule: {summary['declined_by_rule']}  "
+          f"routed-to-author: {summary['routed_to_author']}")
     if not a.dry_run:
         print(f"out: {out}")
     print(f"log: {log}")
