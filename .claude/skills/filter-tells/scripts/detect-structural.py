@@ -1062,6 +1062,65 @@ def repeated_formulae(file_proses: list, min_count: int = 3) -> list:
     return out[:25]
 
 
+# The balanced semicolon aphorism (GH-496): two short independent clauses,
+# the second opening on a determiner and carrying its own finite verb — "The
+# checker produces the bound; the language is the form that makes it
+# possible." No negation, so detect_antithesis cannot see it; no connective,
+# so it is not ordinary clause-joining. Advisory: human semicolons are
+# legitimate at native rates, so candidates go to the semantic pass
+# (Prompt 8), never the hard-issue list.
+_APHORISM_OPEN = re.compile(r"^(?:the|a|an|its|this|that|each|every|both|one)\b", re.I)
+_APHORISM_VERB = re.compile(
+    r"\b(?:is|are|was|were|be|being|been|has|have|makes?|made|produces?|produced|"
+    r"gives?|gave|carries|carry|carried|holds?|held|does|do|did|stays?|stayed|"
+    r"remains?|remained|becomes?|became|keeps?|kept|answers?|answered|closes?|closed|"
+    r"names?|named|forms?|formed|sets?|defines?|defined|owns?|owned|writes?|wrote|"
+    r"runs?|ran|ends?|ended|decides?|decided|binds?|bound|builds?|built)\b", re.I)
+_APHORISM_CONNECTIVE = re.compile(
+    r"^(?:however|therefore|moreover|instead|rather|thus|hence|so|but|and|yet|for|"
+    r"nor|or|otherwise|meanwhile|still|then|that is|in (?:practice|short|turn|fact|contrast)|"
+    r"by (?:contrast|design|default)|conversely|likewise|similarly|accordingly|"
+    r"e\.g\.|i\.e\.|first|second|third|last|finally|worse|better|here|there|"
+    r"elsewhere|afterwards?|together|at (?:the|its)|on (?:the|its)|in (?:the|its|a|an)|"
+    r"with|without|given|once|when|where|while|if|as|after|before|since|until|"
+    r"to|under|over|beyond|from|not)\b", re.I)
+
+
+def detect_semicolon_aphorisms(file_proses: list) -> list:
+    """Balanced semicolon pairs as semantic-pass candidates (GH-496).
+
+    Exactly one semicolon; both clauses 3-14 words; a finite verb on each
+    side; the second clause opens on a determiner, not a connective; no
+    colon, digit, backtick, bracket or citation in the sentence. Advisory,
+    like coinage: the pattern is the AI epigram's lexically-markable subset,
+    and the semantic pass owns the verdict.
+    """
+    out = []
+    for fname, prose in file_proses:
+        for sent in split_sentences_all(prose):
+            flat = " ".join(sent.split())
+            if flat.count(";") != 1:
+                continue
+            if re.search(r"[:`\[\]()\d]|[-*+•] ", flat):
+                continue
+            left, _, right = (p.strip() for p in flat.partition(";"))
+            right = right.rstrip(".").strip()
+            if not left or not right:
+                continue
+            lw, rw = left.split(), right.split()
+            if not (3 <= len(lw) <= 14 and 3 <= len(rw) <= 14):
+                continue
+            if _APHORISM_CONNECTIVE.match(right):
+                continue
+            if not _APHORISM_OPEN.match(right):
+                continue
+            if not (_APHORISM_VERB.search(left) and _APHORISM_VERB.search(right)):
+                continue
+            snippet = flat[:140] + ("..." if len(flat) > 140 else "")
+            out.append({"file": fname, "sentence": snippet})
+    return out[:25]
+
+
 _DEF_MARKERS = re.compile(
     r"\b(that is|i\.e\.|e\.g\.|meaning|we call|we term|we define|defined as|"
     r"refers? to|namely|in other words|which we (?:call|term|define)|"
@@ -2353,6 +2412,9 @@ def main():
     # --- Undefined coinage candidates (advisory; for the semantic pass) ---
     coinage = detect_coinage(file_proses)
 
+    # --- Balanced semicolon aphorisms (advisory; for the semantic pass) ---
+    aphorisms = detect_semicolon_aphorisms(file_proses)
+
     # --- Brief-echo repetition (cross-file; advisory, seeds Prompt 12) ---
     # Cross-file by construction: a single file cannot hold the evidence, since
     # one scope sentence is legitimate and the tell is one per file.
@@ -2372,11 +2434,13 @@ def main():
             payload = {"files": all_results, "repeated_formulae": formulae,
                        "opener_duplication": opener_dup,
                        "coinage_candidates": coinage,
+                       "aphorism_candidates": aphorisms,
                        "brief_echo_repetition": brief_echo}
         else:
             payload["repeated_formulae"] = formulae
             payload["opener_duplication"] = opener_dup
             payload["coinage_candidates"] = coinage
+            payload["aphorism_candidates"] = aphorisms
             payload["brief_echo_repetition"] = brief_echo
         if vdist is not None:
             payload["voice_distance"] = vdist
@@ -2403,6 +2467,13 @@ def main():
                 print(f"  [{f['count']}x] \"{f['phrase']}\"  ({locs})")
             print("  Repeated insider phrases never defined. Confirm in Prompt 8/8b:")
             print("  does the sentence state a mechanism a cold reader could act on?")
+            print()
+        if aphorisms:
+            print("=== Semicolon Aphorism Candidates (for the semantic pass) ===")
+            for f in aphorisms:
+                print(f"  {Path(f['file']).name}: \"{f['sentence']}\"")
+            print("  Balanced two-clause epigrams (GH-496). Confirm in Prompt 8:")
+            print("  keep the sentence only if each clause names a mechanism.")
             print()
         if brief_echo:
             print("=== Brief-Echo Repetition (CoT Category 15, across files) ===")

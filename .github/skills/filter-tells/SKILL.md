@@ -28,7 +28,7 @@ The two scripts (`detect-lexical.sh`, `detect-structural.py`) measure surface me
 - Triple parallels ("clearer instructions, tighter constraints, fewer ambiguous cases")
 - Comprehensive enumerated sweeps in parentheses
 
-Partial exception: `detect-structural.py` now has a `detect_antithesis` check that catches the lexically-marked subset of negation-then-affirmation ("X is not Y. It is Z.", "The meter was.") and clipped antithesis fragments. It does not catch the purely semantic reversal ("Same quality out. Different bill." used without a negation word). Prompt 6 in Step 3 covers that remainder. Treat the regex as a recall aid, not full coverage of the pattern.
+Partial exception: `detect-structural.py` now has a `detect_antithesis` check that catches the lexically-marked subset of negation-then-affirmation ("X is not Y. It is Z.", "The meter was.") and clipped antithesis fragments. It does not catch the purely semantic reversal ("Same quality out. Different bill." used without a negation word). Prompt 6 in Step 3 covers that remainder. Treat the regex as a recall aid, not full coverage of the pattern. `detect_semicolon_aphorisms` likewise flags the lexically-markable balanced semicolon pair ("The checker produces the bound; the language is the form that makes it possible.") as semantic-pass candidates — advisory, since human semicolons are legitimate at native rates (GH-496).
 
 A `clean` or `minor-issues` verdict from the structural script means the surface checks passed. It does **not** mean the prose is in voice. Step 3 (semantic analysis by Opus) is the only layer that catches the rhetorical AI tells the scripts still miss. Skipping Step 3 produces false-negative reports.
 
@@ -149,6 +149,22 @@ signals, and [opening-diversity-fixes.md](./references/opening-diversity-fixes.m
 when `opening_diversity` fires — it is the hardest to fix, since it means
 rewriting sentence openings across the document.
 
+**The corpus invocation (multi-chapter works).** The coinage and
+repeated-formulae detectors count across every file of one invocation, so a
+per-chapter scan cannot see a phrase coined across a book or a paper's
+chapter set — twenty uses of one formula, spread over ten files, never
+reaches any single file's threshold. For a work of more than one chapter,
+also run the script once over the whole set:
+
+```bash
+python3 <filter-tells>/scripts/detect-structural.py <chapter files or dir>
+```
+
+Carry the cross-file coinage, repeated-formulae, and aphorism candidates to
+Step 3 beside the per-file results. A repository's protected-terms file
+names the terms of art that are repetition by design, not coinage; judge
+candidates against it before seeding Step 3 (GH-495).
+
 **Voice distance — the positive check.** The named detectors are a denylist: a
 tell must be known to be caught. Distance from a human corpus is the
 complement, catching deviations nobody has named yet.
@@ -249,6 +265,8 @@ Give the evaluator this stance: **assume the rewrites introduced new patterns.**
 - **Did the rewrites sand off texture?** Over-compression is its own tell (rewrite-instructions.md §3b): confirm dated/personal asides, first-person hedges, deliberate two-beat rhythms, and conversational gestures survived; that clipped fragments did not stack at adjacent paragraph or section boundaries; and that `sentence_length_std` held or rose. If the prose reads "too sleek," restore slack — a reverted over-edit is a fix, not a regression.
 - Consistency between rewritten and preserved sections; overall flow.
 - For a `.tex` source, verify against the edited `.tex` itself (analysis runs on its detex prose view); the in-place edits live in the source file, and untouched lines keep their numbers, so any still-flagged finding maps to source as before.
+
+**The co-judge leg (cross-family).** A fresh context closes the maker–checker gap; it does not close the family gap: an evaluator of the same model family shares the register that produced the rewrites, and a family rates its own epigrams as fine. When the host has a second-family transport configured — the Ollama transport match-voice and the ross read already use — run the Step 6 stance there too: send each rewritten or suspect passage through the second family with Prompt 8, and treat a span **either** family flags as flagged. The report names which families judged. No transport configured, no leg — say so in one line, as the ross read does (GH-494).
 
 Anything the independent evaluator flags goes back through Step 4. A rewrite is accepted only when a checker that never saw it made pass it clean.
 

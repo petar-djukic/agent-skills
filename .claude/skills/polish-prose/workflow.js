@@ -576,6 +576,26 @@ if (!stable) {
   }
 }
 
+// ------------------------------------------------- Closing evaluator
+// filter-tells Step 6 again, on the shipping text (GH-493). critic-apply,
+// the Iceberg pass, and ross's fix legs all write prose inside the rounds,
+// after the post-humanize Step 6 — and with humanize off, after no
+// filter-tells at all — so the text that ships carries edits no evaluator
+// has read. Same fresh-context stance; findings join the residue and the
+// report, and no round reopens.
+let step6Final = { verdict: 'skipped', findings: [], reason: PANEL_ONLY ? 'panel-only run: nothing was applied' : '' }
+if (!PANEL_ONLY) {
+  step6Final = await agent(`You are filter-tells' Step 6 independent evaluator for ${ART}, in a fresh context, judging the text as it ships after the review rounds. Read "### Step 6: Final Semantic Verification (independent evaluator)" in ${SK}/filter-tells/SKILL.md and follow it.
+
+You see only the final text: ${ART} as it stands now. You have not seen the rounds, the reasoning, or the diffs, and you must not look: do not read git log, git diff, earlier commits, or any sidecar. Run filter-tells' own lexical and structural scans (${SK}/filter-tells/scripts/detect-lexical.sh and detect-structural.py) on ${ART} yourself.
+
+Take Step 6's stance: assume the rounds' applied edits introduced new patterns — critic-apply and the Iceberg pass write prose — and find them. Return verdict "clean" only if you find none; otherwise "flagged", with each finding as one line: the quoted span, the pattern, and what would fix it. Change nothing in ${ART}. ${COMMIT('filter-tells step 6: <slug> (closing evaluator)')} The body carries the verdict and one line per finding. ${HYGIENE}`,
+    { label: 'filter-tells step 6 (closing)', phase: 'Record', schema: STEP6, effort: 'medium', ...M('step6') })
+  if (!step6Final) step6Final = { verdict: 'failed', findings: [], reason: 'the evaluator agent failed' }
+  log(`filter-tells step 6 (closing, fresh context): ${step6Final.verdict}, ${step6Final.findings.length} finding(s)`)
+  residue = [...residue, ...(step6Final.findings || []).map((f) => `filter-tells step 6 (closing evaluator on the shipping text): ${f}`)]
+}
+
 // ---------------------------------------------------------------- Record
 phase('Record')
 const record = await agent(`First strip the reverse-outline markers: count the '<!-- rst:' lines in ${ART}, then run python3 ${SK}/reverse-outline/scripts/rst_markers.py strip ${ART} --in-place. The markers are the review loop's scaffolding and never ship in the article. Return the count as markers_stripped, and commit the strip on its own as "reverse-outline strip: <slug> (record)" with the count in the body (skip the commit when the count is 0).
@@ -613,6 +633,7 @@ return {
   focus_file: pre.focus_file || null,
   humanize: hum,
   step6,
+  step6_final: step6Final,
   rounds,
   final_read: finalRead ? { convergent: finalRead.convergent, focus_answers: finalRead.focus_answers, classes: finalRead.classes } : null,
   residue,
