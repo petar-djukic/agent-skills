@@ -527,6 +527,47 @@ def test_other_rewrites_and_cuts_still_apply():
     print("  other_rewrites_and_cuts_still_apply: ok")
 
 
+# --- GH-500: paragraph-level findings go to the author ---
+
+OPENING = ("Multi-agent applications wire several agents into one workflow. "
+           "We argue that such an application can be written down as data. "
+           "The bound comes from the checker and from the engine.")
+
+
+def test_restructure_findings_are_routed_convergent_or_not():
+    art = "# T\n\n" + OPENING + "\n"
+    called = []
+    sh = sheet(conv(OPENING[:60], [("ross", "RESTRUCTURE: The claim is split across sentences.",
+                                    "State the thesis with its consequence first."),
+                                   ("fowler", "RESTRUCTURE: The checker is introduced twice.",
+                                    "Introduce it once.")]),
+               '### ross\n\n1. "The bound comes from the checker and from the engine." → '
+               'RESTRUCTURE: Restates the thesis. — *Fold it into the opener.*\n')
+    new, recs = ca.decide_and_apply(art, ca.parse_sheet(sh), generate=lambda p: called.append(p) or "x")
+    assert [r["status"] for r in recs] == ["routed-restructure", "routed-restructure"], recs
+    assert all("goes to the author" in r["cause"] for r in recs)
+    assert recs[0]["fix"] == "State the thesis with its consequence first."
+    assert new == art and called == [], "no model call, no edit"
+    c = ca.counts(recs)
+    assert c["routed_to_author"] == 2 and c["applied"] == 0
+    print("  restructure_findings_are_routed_convergent_or_not: ok")
+
+
+def test_a_reorganizing_fix_is_routed_and_a_plain_rewrite_is_not():
+    art = "# T\n\n" + LAM_PAR + "\n"
+    for fix in ("Split the paragraph at the second sentence.",
+                "Move the budget sentence to its own paragraph.",
+                "State the claim first, then the evidence."):
+        sh = sheet(conv(LAM_PAR, [("a", "Two topics.", fix), ("b", "Two topics.", fix)]))
+        _new, recs = ca.decide_and_apply(art, ca.parse_sheet(sh), generate=lambda p: "x")
+        assert recs[0]["status"] == "routed-restructure", (fix, recs)
+    sh = sheet(conv(LAM_PAR, [("a", "Plainer.", "say it plainly"), ("b", "Plainer.", "plain")]))
+    gen = lambda p: p.split("Paragraph:\n", 1)[1].replace("can propose any change", "may propose any change")
+    _new, recs = ca.decide_and_apply(art, ca.parse_sheet(sh), generate=gen)
+    assert recs[0]["status"] == "applied-rewrite", recs
+    print("  a_reorganizing_fix_is_routed_and_a_plain_rewrite_is_not: ok")
+
+
 if __name__ == "__main__":
     test_convergent_applied_and_marker_roundtrip()
     test_split_panel_skipped()
@@ -558,4 +599,6 @@ if __name__ == "__main__":
     test_closed_file_on_the_cli()
     test_a_gloss_fix_is_declined_for_the_author()
     test_other_rewrites_and_cuts_still_apply()
+    test_restructure_findings_are_routed_convergent_or_not()
+    test_a_reorganizing_fix_is_routed_and_a_plain_rewrite_is_not()
     print("all critic-apply tests passed")

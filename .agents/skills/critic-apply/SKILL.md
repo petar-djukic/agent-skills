@@ -10,7 +10,8 @@ description: >-
   rewrite transport with a narrow one-sentence instruction and a
   mechanical gate (numbers, citations, em-dash/colon budgets, size
   band); deletions apply directly; rst markers round-trip. Reports
-  applied/kept/declined-by-rule for the generation: block. Triggers:
+  applied/kept/declined-by-rule/routed-to-author for the generation:
+  block, paragraph-level findings routed to the author unapplied. Triggers:
   critic apply, apply the critic sheet, apply the panel, apply
   suggestions by rule, converged sheet application.
 argument-hint: '--article <draft.md> --sheet <stem>.critic-sheet.md'
@@ -28,6 +29,7 @@ rules decide, and the rules are arguable because they are deterministic.
 
 | rule | effect |
 |---|---|
+| paragraph-level finding (a `RESTRUCTURE:` lead, or a fix that splits, merges, reorders, or moves material between paragraphs) | routed to the author (`routed-restructure`), convergent or not; never sent to the rewriter |
 | convergent target (2+ distinct critics on one passage) | accepted |
 | split panel (a proposal beside a KEEP/NO CHANGE dissent) | skipped — proposal + dissent is not convergence |
 | constitution-protected span (`--protected` verbatim spans) | declined with cause, however many critics want it — the constitution outranks the panel |
@@ -93,6 +95,17 @@ rules decide, and the rules are arguable because they are deterministic.
   a term, no model is asked: it has no source for the author's meaning, and
   one run expanded LAM as "Lean Agent Model". The rewrite prompt also says
   never to add a definition the paragraph lacks.
+- **A paragraph-level finding goes to the author** (`routed-restructure`,
+  GH-500). critic-panel marks a finding scoped to the whole paragraph with
+  a `RESTRUCTURE:` lead (its paragraph-unity check); a fix that splits,
+  merges, reorders, or moves material between paragraphs is read the same
+  way when the critic left the scope off. The rewrite transport changes one
+  sentence inside one paragraph and cannot take such a finding: applied as
+  a local edit, a "state the unit at first use" fix lengthened the weakest
+  sentence of a paragraph whose claim two narrow passes had already split
+  across three sentences (petar-djukic/agent-skills#498). The record keeps
+  the critics' fix, and `counts()` reports these as `routed_to_author`,
+  apart from applied, kept, and declined.
 - **Paragraphs run concurrently** (`--jobs`, default 4; 1 is sequential).
   Each model call still carries one paragraph and one sentence, and the
   output does not depend on `--jobs`.
